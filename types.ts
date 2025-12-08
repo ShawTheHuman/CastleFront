@@ -41,8 +41,8 @@ export interface Player {
   income: Record<ResourceType, number>;
   population: number;
   maxPopulation: number;
-  militaryPopulation: number; 
-  attackTarget: string | null; 
+  militaryPopulation: number;
+  attackTarget: string | null;
   units: Unit[];
   // For Map Labels
   center: Coordinates;
@@ -51,10 +51,10 @@ export interface Player {
 
 // Used for passing config from Lobby to Game Engine
 export interface PlayerProfile {
-    id: string;
-    name: string;
-    isAI: boolean;
-    color: string;
+  id: string;
+  name: string;
+  isAI: boolean;
+  color: string;
 }
 
 export interface Tile {
@@ -123,19 +123,20 @@ export interface Camera {
 // --- MATCHMAKING TYPES ---
 
 export interface Lobby {
-    id: string;
-    mapName: string;
-    players: PlayerProfile[];
-    maxPlayers: number;
-    createdAt: number;
-    expiresAt: number; // Timestamp when it force starts
-    status: 'WAITING' | 'STARTING' | 'IN_PROGRESS';
+  id: string;
+  mapName: string;
+  players: PlayerProfile[];
+  maxPlayers: number;
+  createdAt: number;
+  expiresAt: number; // Timestamp when it force starts
+  status: 'WAITING' | 'STARTING' | 'IN_PROGRESS';
 }
 
 export interface MatchLog {
-    matchId: string;
-    mapName: string;
-    winnerName: string;
-    totalPlayers: number;
-    timestamp: number;
+  matchId: string;
+  mapName: string;
+  winnerName: string;
+  winnerId: string;
+  totalPlayers: number;
+  timestamp: number;
 }

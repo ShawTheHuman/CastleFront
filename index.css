@@ -1,0 +1,66 @@
+@import "tailwindcss";
+@config "./tailwind.config.js";
+
+:root {
+    font-family: 'Crimson Pro', serif;
+    background-color: #0c0a09;
+    /* stone-950 */
+    color: #e7e5e4;
+    /* stone-200 */
+}
+
+body {
+    margin: 0;
+    overflow: hidden;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #1c1917;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #78350f;
+    /* amber-900 */
+    border: 1px solid #92400e;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #92400e;
+}
+
+@layer utilities {
+    .glass-panel {
+        @apply bg-[#1c1917]/90 backdrop-blur-md border border-amber-600/30 shadow-xl;
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(0, 0, 0, 0.5);
+    }
+
+    .border-medieval {
+        @apply border border-amber-700/40;
+    }
+
+    .text-gold {
+        @apply text-amber-500 drop-shadow-md;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 1);
+    }
+
+    .lord-button {
+        @apply relative overflow-hidden transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] border border-amber-600/50 shadow-[0_4px_0_#451a03] active:shadow-none active:translate-y-[4px];
+        background: linear-gradient(to bottom, #78350f, #451a03);
+    }
+
+    .lord-button:disabled {
+        @apply opacity-50 cursor-not-allowed grayscale pointer-events-none shadow-none translate-y-[2px];
+    }
+
+    .lord-button::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(to bottom, rgba(255, 255, 255, 0.1), transparent);
+    }
+}

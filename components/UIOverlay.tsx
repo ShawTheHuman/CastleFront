@@ -3,26 +3,30 @@ import { BuildingType, Player, ResourceType, UnitType } from '../types';
 import { BUILDING_COSTS, UNIT_COSTS } from '../constants';
 
 const Resources = ({ player }: { player: Player }) => (
-  <div className="flex gap-4 bg-gray-900 bg-opacity-80 p-2 rounded-lg text-white text-xs md:text-sm shadow-lg border border-gray-700 pointer-events-auto">
+  <div className="flex items-center gap-6 bg-[#1c1917]/95 backdrop-blur-md px-6 py-3 rounded-xl text-amber-100 text-sm shadow-xl border-2 border-amber-900/40 pointer-events-auto transition-all hover:scale-105 hover:bg-[#292524]">
     <div className="flex flex-col items-center">
-      <span className="text-yellow-400 font-bold">Gold</span>
-      <span>{Math.floor(player.resources.GOLD)} <span className="text-gray-400">(+{player.income.GOLD}/s)</span></span>
+      <span className="text-amber-500 font-bold font-display text-xs tracking-wider">GOLD</span>
+      <span className="font-serif">{Math.floor(player.resources.GOLD)} <span className="text-stone-500 text-[10px]">(+{player.income.GOLD})</span></span>
     </div>
+    <div className="w-px h-6 bg-amber-900/30"></div>
     <div className="flex flex-col items-center">
-      <span className="text-green-400 font-bold">Wood</span>
-      <span>{Math.floor(player.resources.WOOD)} <span className="text-gray-400">(+{player.income.WOOD}/s)</span></span>
+      <span className="text-green-600 font-bold font-display text-xs tracking-wider">WOOD</span>
+      <span className="font-serif">{Math.floor(player.resources.WOOD)} <span className="text-stone-500 text-[10px]">(+{player.income.WOOD})</span></span>
     </div>
+    <div className="w-px h-6 bg-amber-900/30"></div>
     <div className="flex flex-col items-center">
-      <span className="text-gray-400 font-bold">Stone</span>
-      <span>{Math.floor(player.resources.STONE)} <span className="text-gray-400">(+{player.income.STONE}/s)</span></span>
+      <span className="text-stone-400 font-bold font-display text-xs tracking-wider">STONE</span>
+      <span className="font-serif">{Math.floor(player.resources.STONE)} <span className="text-stone-500 text-[10px]">(+{player.income.STONE})</span></span>
     </div>
+    <div className="w-px h-6 bg-amber-900/30"></div>
     <div className="flex flex-col items-center">
-      <span className="text-orange-400 font-bold">Food</span>
-      <span>{Math.floor(player.resources.FOOD)} <span className="text-gray-400">(+{player.income.FOOD}/s)</span></span>
+      <span className="text-orange-600 font-bold font-display text-xs tracking-wider">FOOD</span>
+      <span className="font-serif">{Math.floor(player.resources.FOOD)} <span className="text-stone-500 text-[10px]">(+{player.income.FOOD})</span></span>
     </div>
-    <div className="flex flex-col items-center ml-2 border-l pl-2 border-gray-600">
-      <span className="text-blue-300 font-bold">Pop</span>
-      <span>{player.population} / {player.maxPopulation}</span>
+    <div className="w-px h-6 bg-amber-900/30"></div>
+    <div className="flex flex-col items-center">
+      <span className="text-blue-400 font-bold font-display text-xs tracking-wider">PEASANTS</span>
+      <span className="font-serif">{player.population} <span className="text-stone-500">/</span> {player.maxPopulation}</span>
     </div>
   </div>
 );
@@ -34,27 +38,33 @@ const BuildButton: React.FC<{
   selectedBuilding: BuildingType | null;
 }> = ({ type, player, onBuildSelect, selectedBuilding }) => {
   const cost = BUILDING_COSTS[type];
-  const canAfford = 
-      player.resources.GOLD >= cost.GOLD &&
-      player.resources.WOOD >= cost.WOOD &&
-      player.resources.STONE >= cost.STONE &&
-      player.resources.FOOD >= cost.FOOD;
+  const canAfford =
+    player.resources.GOLD >= cost.GOLD &&
+    player.resources.WOOD >= cost.WOOD &&
+    player.resources.STONE >= cost.STONE &&
+    player.resources.FOOD >= cost.FOOD;
 
   return (
     <button
       onClick={() => onBuildSelect(type)}
       disabled={!canAfford}
       className={`
-        flex flex-col items-center justify-center p-2 rounded border w-20 h-20 transition-all
-        ${selectedBuilding === type ? 'ring-2 ring-yellow-400 bg-gray-700' : 'bg-gray-800'}
-        ${canAfford ? 'hover:bg-gray-700 text-white cursor-pointer' : 'opacity-50 cursor-not-allowed text-gray-500'}
+        relative group flex flex-col items-center justify-center p-2 rounded w-20 h-20 transition-all duration-200 border-2
+        ${selectedBuilding === type
+          ? 'bg-amber-900 border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.4)] transform scale-105 z-10'
+          : 'bg-[#292524] border-amber-900/30 hover:bg-[#44403c] hover:border-amber-600/50'}
+        ${!canAfford && 'opacity-40 cursor-not-allowed grayscale'}
       `}
     >
-      <div className="font-bold text-[10px] mb-1">{type}</div>
-      <div className="text-[9px] flex flex-wrap justify-center gap-1">
-        {cost.GOLD > 0 && <span className="text-yellow-400">{cost.GOLD}G</span>}
-        {cost.WOOD > 0 && <span className="text-green-400">{cost.WOOD}W</span>}
+      <div className="font-bold text-[10px] mb-1 font-display tracking-wider text-amber-100">{type}</div>
+      <div className="text-[9px] flex flex-wrap justify-center gap-1 opacity-80 group-hover:opacity-100 font-serif">
+        {cost.GOLD > 0 && <span className="text-yellow-500">{cost.GOLD}G</span>}
+        {cost.WOOD > 0 && <span className="text-green-600">{cost.WOOD}W</span>}
       </div>
+
+      {/* Decorative Corners */}
+      <div className={`absolute top-0 left-0 w-1.5 h-1.5 border-t border-l ${selectedBuilding === type ? 'border-amber-200' : 'border-transparent'}`}></div>
+      <div className={`absolute bottom-0 right-0 w-1.5 h-1.5 border-b border-r ${selectedBuilding === type ? 'border-amber-200' : 'border-transparent'}`}></div>
     </button>
   );
 };
@@ -65,27 +75,29 @@ const UnitButton: React.FC<{
   onUnitSpawn: (type: UnitType) => void;
   selectedSpawnUnitType: UnitType | null;
 }> = ({ type, player, onUnitSpawn, selectedSpawnUnitType }) => {
-    const cost = UNIT_COSTS[type];
-    const canAfford = 
-      player.resources.GOLD >= cost.GOLD &&
-      player.resources.WOOD >= cost.WOOD &&
-      player.resources.STONE >= cost.STONE &&
-      player.resources.FOOD >= cost.FOOD;
-      
-    return (
-       <button
-          onClick={() => onUnitSpawn(type)}
-          disabled={!canAfford}
-          className={`
-              flex flex-col items-center justify-center p-2 rounded border w-16 h-16 transition-all 
-              ${selectedSpawnUnitType === type ? 'ring-2 ring-yellow-400 bg-gray-700' : 'bg-gray-800'}
-              ${canAfford ? 'hover:bg-gray-700 text-white cursor-pointer' : 'opacity-50 cursor-not-allowed text-gray-500'}
+  const cost = UNIT_COSTS[type];
+  const canAfford =
+    player.resources.GOLD >= cost.GOLD &&
+    player.resources.WOOD >= cost.WOOD &&
+    player.resources.STONE >= cost.STONE &&
+    player.resources.FOOD >= cost.FOOD;
+
+  return (
+    <button
+      onClick={() => onUnitSpawn(type)}
+      disabled={!canAfford}
+      className={`
+              relative group flex flex-col items-center justify-center p-2 rounded w-16 h-16 transition-all duration-200 border-2
+              ${selectedSpawnUnitType === type
+          ? 'bg-red-900 border-red-500 shadow-[0_0_15px_rgba(220,38,38,0.4)] transform scale-105 z-10'
+          : 'bg-[#292524] border-amber-900/30 hover:bg-[#44403c] hover:border-amber-600/50'}
+              ${!canAfford && 'opacity-40 cursor-not-allowed grayscale'}
           `}
-       >
-           <div className="font-bold text-[10px] mb-1">{type.slice(0, 4)}</div>
-           <div className="text-[9px] text-yellow-500">{cost.GOLD}G</div>
-       </button>
-    )
+    >
+      <div className="font-bold text-[10px] mb-1 font-display tracking-wider text-amber-100">{type.slice(0, 4)}</div>
+      <div className="text-[9px] text-yellow-600 font-serif font-bold">{cost.GOLD}G</div>
+    </button>
+  )
 }
 
 interface UIOverlayProps {
@@ -99,10 +111,10 @@ interface UIOverlayProps {
   onExit: () => void;
 }
 
-export const UIOverlay: React.FC<UIOverlayProps> = ({ 
-  player, 
-  onBuildSelect, 
-  onUnitSpawn, 
+export const UIOverlay: React.FC<UIOverlayProps> = ({
+  player,
+  onBuildSelect,
+  onUnitSpawn,
   selectedBuilding,
   selectedSpawnUnitType,
   attackPercentage,
@@ -112,66 +124,80 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   if (!player) return null;
 
   return (
-    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-2">
+    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4 pb-6">
       {/* Top Bar */}
-      <div className="flex justify-center w-full relative">
+      <div className="flex justify-center w-full relative pt-2">
         <Resources player={player} />
-        
+
         {/* Return to Lobby Button */}
         <button
           onClick={onExit}
-          className="absolute right-0 top-0 pointer-events-auto bg-red-600 hover:bg-red-500 text-white p-2 rounded-lg shadow-lg border border-red-400 transition-transform transform hover:scale-105 flex items-center gap-2"
-          title="Return to Lobby"
+          className="absolute right-0 top-0 pointer-events-auto bg-red-900/90 hover:bg-red-800 backdrop-blur text-red-100 p-2 px-4 rounded shadow-lg border border-red-700 transition-all transform hover:scale-105 flex items-center gap-2 group"
+          title="Retreat from Battle"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 group-hover:rotate-90 transition-transform">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
           </svg>
-          <span className="hidden md:inline text-xs font-bold">Exit</span>
+          <span className="hidden md:inline text-xs font-bold font-display tracking-wider uppercase">Retreat</span>
         </button>
       </div>
 
-      {/* Right Side: Attack Slider */}
-      <div className="absolute right-4 top-1/2 transform -translate-y-1/2 pointer-events-auto flex flex-col items-center bg-gray-900 bg-opacity-80 p-4 rounded-lg border border-gray-700">
-          <div className="text-white font-bold mb-2 text-xs uppercase tracking-wider">Attack Power</div>
-          <div className="h-48 flex items-center justify-center">
+      {/* Right Side: Attack Slider (Power Gauge Style) */}
+      <div className="absolute right-6 top-1/2 transform -translate-y-1/2 pointer-events-auto flex flex-col items-center">
+        <div className="bg-[#1c1917]/90 backdrop-blur-md p-3 rounded-lg border-2 border-amber-900/50 shadow-2xl flex flex-col items-center gap-2">
+          <div className="text-amber-700 font-bold text-[10px] uppercase writing-vertical-rl transform rotate-180 tracking-widest h-20 text-center font-display">Aggression</div>
+
+          <div className="h-48 w-4 bg-[#0c0a09] rounded-full relative overflow-hidden border border-amber-900/30">
+            <div
+              className="absolute bottom-0 w-full bg-gradient-to-t from-red-900 via-amber-600 to-yellow-400 transition-all duration-200"
+              style={{ height: `${attackPercentage}%` }}
+            ></div>
+            {/* Texture overlay */}
+            <div className="absolute inset-0 bg-[linear-gradient(transparent_2px,rgba(0,0,0,0.5)_2px)] bg-[size:100%_4px] opacity-50"></div>
+
             <input
               type="range"
               min="1"
               max="100"
               value={attackPercentage}
               onChange={(e) => setAttackPercentage(parseInt(e.target.value))}
-              className="appearance-none h-48 w-4 bg-gray-700 rounded-lg outline-none slider-vertical"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
             />
           </div>
-          <div className="text-yellow-400 font-bold mt-2 text-lg">{attackPercentage}%</div>
-          <div className="text-gray-400 text-[10px] mt-1">of Pop</div>
+
+          <div className="text-amber-500 font-bold text-lg font-display">
+            {attackPercentage}<span className="text-xs">%</span>
+          </div>
+        </div>
       </div>
 
-      {/* Bottom Bar */}
+      {/* Bottom Bar (Controls) */}
       <div className="flex flex-col items-center pointer-events-auto">
-         <div className="flex gap-2 mb-2 bg-black bg-opacity-50 p-2 rounded">
-             {/* Simple toggle for simplicity */}
-             <div className="text-white text-xs font-bold mr-2">UNITS:</div>
-             {(Object.keys(UnitType) as UnitType[]).map(u => (
-                 <UnitButton key={u} type={u} player={player} onUnitSpawn={onUnitSpawn} selectedSpawnUnitType={selectedSpawnUnitType} />
-             ))}
-         </div>
-         
-         <div className="bg-gray-900 bg-opacity-90 p-2 rounded-t-xl border-t border-gray-700 flex gap-2 overflow-x-auto max-w-full">
-             {(Object.keys(BuildingType) as BuildingType[])
-                .filter(b => b !== BuildingType.KINGDOM) // Filter out KINGDOM from UI
-                .map(b => (
-                 <BuildButton key={b} type={b} player={player} onBuildSelect={onBuildSelect} selectedBuilding={selectedBuilding} />
-             ))}
-         </div>
+        {/* Units Panel */}
+        <div className="flex gap-2 mb-3 bg-[#1c1917]/90 backdrop-blur-md p-2 rounded-lg border border-amber-900/40 shadow-lg transform translate-y-2 hover:translate-y-0 transition-transform">
+          <div className="flex flex-col justify-center px-2 border-r border-amber-900/30">
+            <span className="text-[10px] text-amber-600 uppercase font-bold tracking-wider font-display">Raise</span>
+            <span className="text-[10px] text-amber-600 uppercase font-bold tracking-wider font-display">Army</span>
+          </div>
+          {(Object.keys(UnitType) as UnitType[]).map(u => (
+            <UnitButton key={u} type={u} player={player} onUnitSpawn={onUnitSpawn} selectedSpawnUnitType={selectedSpawnUnitType} />
+          ))}
+        </div>
+
+        {/* Build Panel */}
+        <div className="bg-[#1c1917]/95 backdrop-blur-xl p-3 px-6 rounded-t-xl border-t-2 border-l border-r border-amber-900/50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] flex gap-3 overflow-x-auto max-w-full">
+          <div className="flex flex-col justify-center mr-2 border-r border-amber-900/30 pr-4">
+            <span className="text-xs text-amber-500 uppercase font-bold tracking-widest font-display">Erect</span>
+            <span className="text-[10px] text-stone-500 font-serif italic">Defense</span>
+          </div>
+          {(Object.keys(BuildingType) as BuildingType[])
+            .filter(b => b !== BuildingType.KINGDOM)
+            .map(b => (
+              <BuildButton key={b} type={b} player={player} onBuildSelect={onBuildSelect} selectedBuilding={selectedBuilding} />
+            ))}
+        </div>
       </div>
-      
-      <style>{`
-        input[type=range].slider-vertical {
-            -webkit-appearance: slider-vertical;
-        }
-      `}</style>
     </div>
   );
 };
