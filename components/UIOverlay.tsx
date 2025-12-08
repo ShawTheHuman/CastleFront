@@ -96,6 +96,7 @@ interface UIOverlayProps {
   selectedSpawnUnitType: UnitType | null;
   attackPercentage: number;
   setAttackPercentage: (val: number) => void;
+  onExit: () => void;
 }
 
 export const UIOverlay: React.FC<UIOverlayProps> = ({ 
@@ -105,15 +106,28 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   selectedBuilding,
   selectedSpawnUnitType,
   attackPercentage,
-  setAttackPercentage
+  setAttackPercentage,
+  onExit
 }) => {
   if (!player) return null;
 
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-2">
       {/* Top Bar */}
-      <div className="flex justify-center w-full">
+      <div className="flex justify-center w-full relative">
         <Resources player={player} />
+        
+        {/* Return to Lobby Button */}
+        <button
+          onClick={onExit}
+          className="absolute right-0 top-0 pointer-events-auto bg-red-600 hover:bg-red-500 text-white p-2 rounded-lg shadow-lg border border-red-400 transition-transform transform hover:scale-105 flex items-center gap-2"
+          title="Return to Lobby"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+          </svg>
+          <span className="hidden md:inline text-xs font-bold">Exit</span>
+        </button>
       </div>
 
       {/* Right Side: Attack Slider */}

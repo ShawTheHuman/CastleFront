@@ -1,4 +1,4 @@
-import { BuildingType, GameConfig, Player, ResourceType, Tile, Unit, UnitType, Building, AttackWave } from '../types';
+import { BuildingType, GameConfig, Player, ResourceType, Tile, Unit, UnitType, Building, AttackWave, PlayerProfile } from '../types';
 import { BUILDING_STATS, BUILDING_COSTS, UNIT_STATS, PLAYER_COLORS, MAP_HEIGHT, MAP_WIDTH, UNIT_COSTS } from '../constants';
 
 export class GameEngine {
@@ -7,17 +7,28 @@ export class GameEngine {
   attacks: AttackWave[] = [];
   config: GameConfig;
   tickCount: number = 0;
+  winnerId: string | null = null;
+  totalLandTiles: number = 0;
+  isGameActive: boolean = false;
   
   constructor(config: GameConfig) {
     this.config = config;
     this.generateMap(); // Initialize map immediately to prevent render crashes
   }
 
-  init(humanPlayerId: string, aiCount: number) {
+  // Updated Init to accept Lobby Roster
+  init(roster: PlayerProfile[]) {
+    this.winnerId = null;
+    this.isGameActive = false; // Reset game state
     this.generateMap();
-    this.setupPlayers(humanPlayerId, aiCount);
+    this.setupPlayers(roster);
     this.spawnBotBases();
     this.attacks = [];
+    this.tickCount = 0;
+  }
+
+  startMatch() {
+      this.isGameActive = true;
   }
 
   // Simple pseudo-random 2D noise
@@ -70,6 +81,7 @@ export class GameEngine {
     const w = this.config.mapWidth;
     const h = this.config.mapHeight;
     this.tiles = [];
+    this.totalLandTiles = 0;
 
     const seed = Math.random() * 10000;
 
@@ -78,8 +90,8 @@ export class GameEngine {
       for (let x = 0; x < w; x++) {
         
         // 1. Generate Fractal Terrain
-        // Scale 0.04 works well for 128x128 to create multiple islands
-        let noiseVal = this.fbm(x, y, 6, 0.5, 0.04, seed);
+        // Scale adjusted to 0.02 for larger map dimension to keep features proportional
+        let noiseVal = this.fbm(x, y, 6, 0.5, 0.02, seed);
 
         // 2. Apply Edge Mask
         // Creates a soft circular constraint so map edges are water
@@ -106,6 +118,7 @@ export class GameEngine {
         
         if (elevationVal > waterThreshold) {
             type = 'LAND';
+            this.totalLandTiles++;
             // Map remaining range to 1-15
             const landHeight = (elevationVal - waterThreshold) / (1 - waterThreshold);
             finalElevation = Math.max(1, Math.min(15, Math.floor(landHeight * 15) + 1));
@@ -128,23 +141,17 @@ export class GameEngine {
     }
   }
 
-  setupPlayers(humanPlayerId: string, aiCount: number) {
+  setupPlayers(roster: PlayerProfile[]) {
     this.players = [];
-    
-    // Human
-    this.players.push(this.createPlayer(humanPlayerId, PLAYER_COLORS[0], false));
-
-    // AI
-    for (let i = 0; i < aiCount; i++) {
-      // Cycle through colors if we have more AIs than colors
-      const colorIndex = (i + 1) % PLAYER_COLORS.length;
-      this.players.push(this.createPlayer(`AI_${i}`, PLAYER_COLORS[colorIndex], true));
-    }
+    roster.forEach(p => {
+        this.players.push(this.createPlayer(p.id, p.name, p.color, p.isAI));
+    });
   }
 
-  createPlayer(id: string, color: string, isAI: boolean): Player {
+  createPlayer(id: string, name: string, color: string, isAI: boolean): Player {
     return {
       id,
+      name,
       color,
       isAI,
       resources: { [ResourceType.GOLD]: 500, [ResourceType.WOOD]: 300, [ResourceType.STONE]: 100, [ResourceType.FOOD]: 300 },
@@ -153,7 +160,9 @@ export class GameEngine {
       maxPopulation: 500,
       militaryPopulation: 0,
       attackTarget: null,
-      units: []
+      units: [],
+      center: { x: 0, y: 0 },
+      landArea: 0
     };
   }
 
@@ -193,10 +202,10 @@ export class GameEngine {
 
         if (bestSpot) {
             this.placeBuilding(p.id, BuildingType.KINGDOM, bestSpot.x, bestSpot.y, true);
-            this.claimRadius(p.id, bestSpot.x, bestSpot.y, 4);
-            // Also explicitly reinforce the 3x3 core
-            for(let dy=-1; dy<=1; dy++) {
-                for(let dx=-1; dx<=1; dx++) {
+            this.claimRadius(p.id, bestSpot.x, bestSpot.y, 8); // Double radius
+            // Also explicitly reinforce the 5x5 core
+            for(let dy=-2; dy<=2; dy++) {
+                for(let dx=-2; dx<=2; dx++) {
                     const nx = bestSpot.x + dx;
                     const ny = bestSpot.y + dy;
                     if (this.isValid(nx, ny)) {
@@ -214,10 +223,10 @@ export class GameEngine {
   spawnHumanBase(playerId: string, x: number, y: number): boolean {
       if (this.isValidSpawn(x, y)) {
           this.placeBuilding(playerId, BuildingType.KINGDOM, x, y, true);
-          this.claimRadius(playerId, x, y, 4);
-          // Reinforce 3x3 core
-          for(let dy=-1; dy<=1; dy++) {
-              for(let dx=-1; dx<=1; dx++) {
+          this.claimRadius(playerId, x, y, 8); // Double radius
+          // Reinforce 5x5 core
+          for(let dy=-2; dy<=2; dy++) {
+              for(let dx=-2; dx<=2; dx++) {
                   const nx = x + dx;
                   const ny = y + dy;
                   if (this.isValid(nx, ny)) {
@@ -276,10 +285,10 @@ export class GameEngine {
       }
   }
 
-  // Check 3x3 clearance for Kingdom
+  // Check 5x5 clearance for Kingdom to match larger radius/scale
   isValidSpawn(x: number, y: number): boolean {
-      for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
               const nx = x + dx;
               const ny = y + dy;
               if (!this.isValid(nx, ny)) return false;
@@ -309,7 +318,7 @@ export class GameEngine {
       }
     }
   }
-
+// ... rest of class remains unchanged ...
   isAdjacentToPlayer(x: number, y: number, playerId: string): boolean {
       const neighbors = [
           {dx: 0, dy: -1}, {dx: 0, dy: 1},
@@ -326,42 +335,31 @@ export class GameEngine {
       return false;
   }
   
-  // === NEW EXPANSION LOGIC ===
   distributeExpansion(playerId: string, clickX: number, clickY: number, percentage: number) {
       if (!this.isValid(clickX, clickY)) return;
 
       const targetTile = this.tiles[clickY][clickX];
-      const targetOwner = targetTile.ownerId; // null for Neutral, string for Enemy
+      const targetOwner = targetTile.ownerId; 
 
-      // Don't expand into own territory
       if (targetOwner === playerId) return;
 
       const player = this.players.find(p => p.id === playerId);
       if (!player || player.population <= 5) return;
 
-      // Calculate amount to transfer to military population
       const amountToSend = Math.floor(player.population * (percentage / 100));
       if (amountToSend <= 0) return;
 
-      // Transfer population
       player.population -= amountToSend;
       player.militaryPopulation += amountToSend;
-      
-      // Update Preference
-      // If expanding to neutral, target is null
-      // If attacking enemy, target is their ID
       player.attackTarget = targetOwner;
   }
 
   processMilitaryDispatch() {
-      // Process every tick (or throttle if needed, but tick is fine for responsiveness)
       this.players.forEach(player => {
           if (player.militaryPopulation < 1) return;
 
-          // Target preference
           const targetOwner = player.attackTarget;
 
-          // 1. Find Castle/Center for sorting
           let castleX = this.config.mapWidth / 2;
           let castleY = this.config.mapHeight / 2;
           const castleTile = this.tiles.flat().find(t => (t.building?.type === BuildingType.KINGDOM || t.building?.type === BuildingType.CASTLE) && t.ownerId === player.id);
@@ -370,7 +368,6 @@ export class GameEngine {
               castleY = castleTile.y;
           }
 
-          // 2. Find Candidates: Owned tiles with neighbors matching TargetOwner
           const candidates: {source: Tile, targets: Tile[]}[] = [];
           const neighbors = [{x:0, y:-1}, {x:0, y:1}, {x:-1, y:0}, {x:1, y:0}];
 
@@ -384,13 +381,10 @@ export class GameEngine {
                           const ny = y + n.y;
                           if (this.isValid(nx, ny)) {
                               const neighbor = this.tiles[ny][nx];
-                              // Valid target?
                               let isValidTarget = false;
                               if (targetOwner === null) {
-                                  // Targeting Neutral: Must be Land and Unowned
                                   isValidTarget = neighbor.ownerId === null && neighbor.type === 'LAND';
                               } else {
-                                  // Targeting Enemy: Must be Owned by that Enemy
                                   isValidTarget = neighbor.ownerId === targetOwner;
                               }
 
@@ -408,22 +402,15 @@ export class GameEngine {
           }
 
           if (candidates.length === 0) {
-              // No valid targets for current preference. 
-              // Optional: switch preference to neutral if enemy eliminated? 
-              // For now, troops just sit in reserve until a new target is clicked or map changes.
               return;
           }
 
-          // 3. Sort by Distance from Castle (Closest First -> Outward spread)
           candidates.sort((a, b) => {
               const da = (a.source.x - castleX)**2 + (a.source.y - castleY)**2;
               const db = (b.source.x - castleX)**2 + (b.source.y - castleY)**2;
               return da - db;
           });
 
-          // 4. Distribute a chunk of military pop
-          // We don't want to dump everything in one tick, stream it out.
-          // e.g. Max 5% of reserves + base 5 per tick
           const flowRate = Math.ceil(player.militaryPopulation * 0.05) + 5;
           const amountToDeploy = Math.min(player.militaryPopulation, flowRate);
           
@@ -436,7 +423,6 @@ export class GameEngine {
               let powerForThis = powerPerSource;
               if (powerForThis > remainingBudget) powerForThis = remainingBudget;
 
-              // Split among its targets
               const powerPerTarget = Math.max(1, Math.floor(powerForThis / cand.targets.length));
               
               cand.targets.forEach(tgt => {
@@ -447,7 +433,6 @@ export class GameEngine {
               });
           }
           
-          // Deduct actually spent amount
           const actuallySpent = amountToDeploy - remainingBudget;
           player.militaryPopulation -= actuallySpent;
       });
@@ -462,7 +447,7 @@ export class GameEngine {
           targetX: tx,
           targetY: ty,
           power: power,
-          speed: 0.2 + (Math.random() * 0.1), // Mild variation
+          speed: 0.2 + (Math.random() * 0.1), 
           color: color
       });
   }
@@ -475,11 +460,9 @@ export class GameEngine {
           const dist = Math.sqrt(dx*dx + dy*dy);
           
           if (dist < 0.2) {
-              // Hit
               this.applyAttack(atk);
               this.attacks.splice(i, 1);
           } else {
-              // Move
               const move = Math.min(dist, atk.speed); 
               atk.x += (dx / dist) * move;
               atk.y += (dy / dist) * move;
@@ -495,50 +478,38 @@ export class GameEngine {
       let remainingPower = 0;
 
       if (tile.ownerId === atk.ownerId) {
-          // Reinforce (shouldn't happen often with adjacency rule, but possible with spillover loop)
           tile.defense += atk.power;
-          remainingPower = 0; // Absorbed
+          remainingPower = 0; 
       } else {
-          // Attack neutral/enemy
-          
           let resistance = 1.0;
           if (tile.ownerId) {
               const defender = this.players.find(p => p.id === tile.ownerId);
               if (defender) {
-                  // Difficulty scales with defender population
-                  // Reduced difficulty: Divisor increased from 300 to 600 (Halved difficulty effect of pop)
-                  resistance = 1.0 + (defender.population / 600);
+                  resistance = 1.0 + (defender.population / 1200);
               }
           }
 
-          // Damage to Defense is reduced by resistance
           const effectiveDamage = atk.power / resistance;
           
           if (effectiveDamage >= tile.defense) {
-             // CAPTURED
              captured = true;
              
-             // Calculate how much raw power was consumed to break defense
              const powerUsed = tile.defense * resistance;
              remainingPower = atk.power - powerUsed;
 
-             tile.defense = 10; // Reset defense for new territory
+             tile.defense = 10; 
              tile.ownerId = atk.ownerId;
              
-             // Handle building capture
              if (tile.building) {
                 tile.building.ownerId = atk.ownerId;
-                tile.building.hp = tile.building.maxHp * 0.2; // Heavily damaged
+                tile.building.hp = tile.building.maxHp * 0.2; 
              }
           } else {
-             // Defended
              tile.defense -= effectiveDamage;
              remainingPower = 0;
           }
       }
 
-      // SPILLOVER LOGIC (Disease-like Spread)
-      // If we captured the tile and have power left, attack ALL neighbors evenly
       if (captured && remainingPower > 1) {
           const neighbors = [
               {x: atk.targetX, y: atk.targetY - 1},
@@ -547,19 +518,14 @@ export class GameEngine {
               {x: atk.targetX + 1, y: atk.targetY}
           ];
 
-          // Filter for valid expansion targets (Neutral or Enemy Land)
           const validTargets = neighbors.filter(n => {
               if (!this.isValid(n.x, n.y)) return false;
               const t = this.tiles[n.y][n.x];
-              // Valid spillover: Land that is NOT ours
               return t.type === 'LAND' && t.ownerId !== atk.ownerId;
           });
 
           if (validTargets.length > 0) {
-              // Evenly distribute remaining power
               const powerPerWave = remainingPower / validTargets.length;
-              
-              // Only spawn if significant enough to matter
               if (powerPerWave >= 1) {
                   validTargets.forEach(target => {
                       this.createAttack(atk.ownerId, atk.targetX, atk.targetY, target.x, target.y, powerPerWave, atk.color);
@@ -569,7 +535,6 @@ export class GameEngine {
       }
   }
 
-  // Check for surrounded territories
   checkEncirclement() {
       const visited = new Set<string>();
       const w = this.config.mapWidth;
@@ -581,7 +546,6 @@ export class GameEngine {
               if (visited.has(key)) continue;
 
               const tile = this.tiles[y][x];
-              // Only care about owned land
               if (tile.type !== 'LAND' || !tile.ownerId) {
                   visited.add(key);
                   continue;
@@ -592,10 +556,6 @@ export class GameEngine {
               const queue: Tile[] = [tile];
               visited.add(key);
               
-              // Track boundary types
-              // We use a Set of strings. 
-              // Special values: 'WATER', 'EDGE', 'NEUTRAL'
-              // Player IDs are normal strings.
               const boundary = new Set<string>();
 
               let head = 0;
@@ -635,13 +595,10 @@ export class GameEngine {
                   }
               }
 
-              // Check capture conditions
-              // Must not touch Water, Edge, or Neutral
               if (boundary.has('WATER') || boundary.has('EDGE') || boundary.has('NEUTRAL')) {
                   continue;
               }
 
-              // Must have exactly 1 surrounding player
               if (boundary.size === 1) {
                   const capturerId = boundary.values().next().value;
                   this.captureComponent(component, capturerId);
@@ -699,10 +656,15 @@ export class GameEngine {
 
   updateEconomy() {
     // Reset counters for calculations (pop growth is additive)
-    const playerStats: Record<string, { gold: number, wood: number, stone: number, food: number, popGrowth: number, maxPop: number }> = {};
+    // ADDED sumX, sumY for centroid calculation
+    const playerStats: Record<string, { 
+        gold: number, wood: number, stone: number, food: number, 
+        popGrowth: number, maxPop: number, landCount: number,
+        sumX: number, sumY: number 
+    }> = {};
     
     this.players.forEach(p => {
-        playerStats[p.id] = { gold: 1, wood: 0, stone: 0, food: 0, popGrowth: 0, maxPop: 0 };
+        playerStats[p.id] = { gold: 1, wood: 0, stone: 0, food: 0, popGrowth: 0, maxPop: 0, landCount: 0, sumX: 0, sumY: 0 };
     });
 
     // Iterate map once
@@ -711,6 +673,9 @@ export class GameEngine {
             const tile = this.tiles[y][x];
             if (tile.ownerId && playerStats[tile.ownerId]) {
                 const stats = playerStats[tile.ownerId];
+                stats.landCount++; // Count owned land
+                stats.sumX += x;
+                stats.sumY += y;
                 
                 // Each claimed tile generates +1 pop per tick (economy tick)
                 stats.popGrowth += 1;
@@ -756,6 +721,12 @@ export class GameEngine {
             [ResourceType.FOOD]: stats.food 
         };
         
+        // Update Center and Area
+        p.landArea = stats.landCount;
+        if (stats.landCount > 0) {
+            p.center = { x: stats.sumX / stats.landCount, y: stats.sumY / stats.landCount };
+        }
+
         // Update Max Pop
         p.maxPopulation = Math.max(100, stats.maxPop); // Min 100
 
@@ -764,7 +735,23 @@ export class GameEngine {
             p.population += stats.popGrowth;
             if (p.population > p.maxPopulation) p.population = p.maxPopulation;
         }
+
+        // WIN CONDITION: > 80% of total land
+        if (this.totalLandTiles > 0 && stats.landCount / this.totalLandTiles > 0.8) {
+            this.winnerId = p.id;
+        }
     });
+
+    // GAME OVER CONDITION: No human players with land remaining
+    if (this.isGameActive) {
+        const humanAlive = this.players.some(p => !p.isAI && playerStats[p.id].landCount > 0);
+        if (!humanAlive && this.players.some(p => !p.isAI)) {
+             // Game Over for human (Defeat)
+             // Set winner to the top performing AI to trigger end screen
+             let topAI = this.players.filter(p => p.isAI).sort((a,b) => playerStats[b.id].landCount - playerStats[a.id].landCount)[0];
+             this.winnerId = topAI ? topAI.id : 'AI_WINNER';
+        }
+    }
   }
 
   updateBuildings() {
@@ -1080,17 +1067,35 @@ export class GameEngine {
     if (!this.isValid(x, y)) return false;
     const tile = this.tiles[y][x];
     if (tile.building) return false;
-    if (tile.type === 'WATER' && type !== BuildingType.PIER) return false;
-    if (tile.type === 'LAND' && type === BuildingType.PIER) return false; 
-    
-    // Harder to build on steep mountains
-    if (tile.elevation > 12 && type !== BuildingType.MINE) return false; 
 
-    // Must be on owned territory
-    if (tile.ownerId !== playerId) {
-        return false;
+    // --- Type Specific Constraints ---
+    
+    if (type === BuildingType.PIER) {
+        // Pier must be on water
+        if (tile.type !== 'WATER') return false;
+        // Pier must be adjacent to player owned territory
+        if (!this.isAdjacentToPlayer(x, y, playerId)) return false;
+    } else {
+        // All other buildings must be on Land
+        if (tile.type !== 'LAND') return false;
+        
+        // All other buildings must be on owned territory
+        if (tile.ownerId !== playerId) return false;
     }
 
+    // Elevation Constraints
+    if (type === BuildingType.FARM) {
+        if (tile.elevation > 5) return false;
+    } else if (type === BuildingType.MINE) {
+        if (tile.elevation <= 5) return false;
+    } else if (type === BuildingType.WOODCUTTER) {
+        if (tile.elevation > 10) return false;
+    } else {
+        // General restriction for other buildings on steep terrain
+        if (tile.elevation > 12) return false; 
+    }
+
+    // --- Resource Check ---
     const player = this.players.find(p => p.id === playerId);
     if (!player) return false;
     const costs = BUILDING_COSTS[type];

@@ -34,15 +34,27 @@ export interface Coordinates {
 
 export interface Player {
   id: string;
+  name: string; // Added Name
   color: string;
   isAI: boolean;
   resources: Record<ResourceType, number>;
   income: Record<ResourceType, number>;
   population: number;
   maxPopulation: number;
-  militaryPopulation: number; // Pop allocated for attacks but not yet deployed
-  attackTarget: string | null; // The ownerID we are currently targeting (null for Neutral)
+  militaryPopulation: number; 
+  attackTarget: string | null; 
   units: Unit[];
+  // For Map Labels
+  center: Coordinates;
+  landArea: number;
+}
+
+// Used for passing config from Lobby to Game Engine
+export interface PlayerProfile {
+    id: string;
+    name: string;
+    isAI: boolean;
+    color: string;
 }
 
 export interface Tile {
@@ -106,4 +118,24 @@ export interface Camera {
   x: number;
   y: number;
   zoom: number;
+}
+
+// --- MATCHMAKING TYPES ---
+
+export interface Lobby {
+    id: string;
+    mapName: string;
+    players: PlayerProfile[];
+    maxPlayers: number;
+    createdAt: number;
+    expiresAt: number; // Timestamp when it force starts
+    status: 'WAITING' | 'STARTING' | 'IN_PROGRESS';
+}
+
+export interface MatchLog {
+    matchId: string;
+    mapName: string;
+    winnerName: string;
+    totalPlayers: number;
+    timestamp: number;
 }

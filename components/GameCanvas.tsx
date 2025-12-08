@@ -15,6 +15,34 @@ interface GameCanvasProps {
   onSpawnUnitAt: (x: number, y: number) => void;
 }
 
+// Utility to darken hex color
+const darkenColor = (color: string, percent: number) => {
+    // Simple RGB darkened
+    if (color.startsWith('#')) {
+        let r = parseInt(color.substring(1, 3), 16);
+        let g = parseInt(color.substring(3, 5), 16);
+        let b = parseInt(color.substring(5, 7), 16);
+
+        r = Math.floor(r * (1 - percent));
+        g = Math.floor(g * (1 - percent));
+        b = Math.floor(b * (1 - percent));
+
+        return `rgb(${r},${g},${b})`;
+    }
+    return color;
+}
+
+// Utility to convert hex to rgba
+const hexToRgba = (hex: string, alpha: number) => {
+    if (hex.startsWith('#')) {
+        let r = parseInt(hex.substring(1, 3), 16);
+        let g = parseInt(hex.substring(3, 5), 16);
+        let b = parseInt(hex.substring(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+    return hex;
+}
+
 export const GameCanvas: React.FC<GameCanvasProps> = ({ 
   engine, 
   playerId, 
@@ -62,11 +90,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     switch (type) {
       case BuildingType.KINGDOM:
         // Draws a 3x3 fortress centered on (x,y)
-        // Since x,y is the top-left of the center tile, we offset by -size to cover left/top neighbors
-        const kX = x - size;
-        const kY = y - size;
-        const kSize = size * 3;
-        const kp = (pct: number) => pct * kSize;
+        // Adjust draw for center origin
+        const kX = x;
+        const kY = y;
+        const kSize = size; 
         
         // Outer walls
         ctx.fillStyle = '#4a5568'; // Dark stone
@@ -74,22 +101,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         
         // Inner courtyard
         ctx.fillStyle = '#2d3748';
-        ctx.fillRect(kX + kp(0.1), kY + kp(0.1), kp(0.8), kp(0.8));
+        ctx.fillRect(kX + p(0.1), kY + p(0.1), p(0.8), p(0.8));
         
         // Central Keep
         ctx.fillStyle = color;
-        ctx.fillRect(kX + kp(0.25), kY + kp(0.25), kp(0.5), kp(0.5));
+        ctx.fillRect(kX + p(0.25), kY + p(0.25), p(0.5), p(0.5));
         
         // Towers at corners
         ctx.fillStyle = '#718096';
-        ctx.fillRect(kX, kY, kp(0.2), kp(0.2)); // TL
-        ctx.fillRect(kX + kp(0.8), kY, kp(0.2), kp(0.2)); // TR
-        ctx.fillRect(kX, kY + kp(0.8), kp(0.2), kp(0.2)); // BL
-        ctx.fillRect(kX + kp(0.8), kY + kp(0.8), kp(0.2), kp(0.2)); // BR
-
-        // Gate
-        ctx.fillStyle = '#1a202c';
-        ctx.fillRect(kX + kp(0.4), kY + kp(0.85), kp(0.2), kp(0.15));
+        ctx.fillRect(kX, kY, p(0.2), p(0.2)); // TL
+        ctx.fillRect(kX + p(0.8), kY, p(0.2), p(0.2)); // TR
+        ctx.fillRect(kX, kY + p(0.8), p(0.2), p(0.2)); // BL
+        ctx.fillRect(kX + p(0.8), kY + p(0.8), p(0.2), p(0.2)); // BR
         break;
 
       case BuildingType.CASTLE:
@@ -231,7 +254,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const startRow = Math.floor((camera.y - (centerY / camera.zoom)) / TILE_SIZE);
     const endRow = startRow + (canvas.height / camera.zoom) / TILE_SIZE + 1;
 
-    // PASS 1: TERRAIN
+    const BORDER_WIDTH = 0.5; // Scaled border width
+    const DRAW_SIZE = TILE_SIZE * 2.5; // Draw icons larger than grid (2.5x tile size)
+
+    // PASS 1: TERRAIN AND BORDERS
     for (let y = Math.max(0, startRow); y < Math.min(MAP_HEIGHT, endRow + 2); y++) {
       if (!engine.tiles[y]) continue;
 
@@ -247,31 +273,45 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             ctx.fillStyle = getTerrainColor(tile.elevation);
             ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
 
-            // 2. Overlay Ownership
+            // 2. Draw Borders AND Overlay if Owned
             if (tile.ownerId) {
                 const owner = engine.players.find(p => p.id === tile.ownerId);
                 if (owner) {
-                    ctx.fillStyle = owner.color;
-                    ctx.globalAlpha = 0.4; // Semi-transparent overlay
+                    // Transparent Overlay
+                    ctx.fillStyle = hexToRgba(owner.color, 0.3);
                     ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-                    ctx.globalAlpha = 1.0;
+
+                    // Border Logic
+                    const borderColor = darkenColor(owner.color, 0.4);
+                    ctx.fillStyle = borderColor;
+
+                    // Check neighbors for border drawing
+                    const checkNeighbor = (dx: number, dy: number) => {
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx < 0 || ny < 0 || nx >= MAP_WIDTH || ny >= MAP_HEIGHT) return true; // Map Edge is border
+                        const neighbor = engine.tiles[ny][nx];
+                        return neighbor.ownerId !== tile.ownerId;
+                    };
+
+                    if (checkNeighbor(0, -1)) ctx.fillRect(px, py, TILE_SIZE, BORDER_WIDTH); // Top
+                    if (checkNeighbor(0, 1)) ctx.fillRect(px, py + TILE_SIZE - BORDER_WIDTH, TILE_SIZE, BORDER_WIDTH); // Bottom
+                    if (checkNeighbor(-1, 0)) ctx.fillRect(px, py, BORDER_WIDTH, TILE_SIZE); // Left
+                    if (checkNeighbor(1, 0)) ctx.fillRect(px + TILE_SIZE - BORDER_WIDTH, py, BORDER_WIDTH, TILE_SIZE); // Right
                 }
+            } else {
+                 // Coastline Outline for neutral land
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                const borderSize = 0.5;
+                const isWater = (nx: number, ny: number) => {
+                    if (nx < 0 || ny < 0 || nx >= MAP_WIDTH || ny >= MAP_HEIGHT) return true;
+                    return engine.tiles[ny][nx].type === 'WATER';
+                };
+                if (isWater(x, y - 1)) ctx.fillRect(px, py, TILE_SIZE, borderSize); // Top
+                if (isWater(x, y + 1)) ctx.fillRect(px, py + TILE_SIZE - borderSize, TILE_SIZE, borderSize); // Bottom
+                if (isWater(x - 1, y)) ctx.fillRect(px, py, borderSize, TILE_SIZE); // Left
+                if (isWater(x + 1, y)) ctx.fillRect(px + TILE_SIZE - borderSize, py, borderSize, TILE_SIZE); // Right
             }
-
-            // Coastline Outline
-            ctx.fillStyle = 'rgba(0,0,0,0.2)';
-            const borderSize = 1;
-            
-            const isWater = (nx: number, ny: number) => {
-                if (nx < 0 || ny < 0 || nx >= MAP_WIDTH || ny >= MAP_HEIGHT) return true;
-                return engine.tiles[ny][nx].type === 'WATER';
-            };
-
-            if (isWater(x, y - 1)) ctx.fillRect(px, py, TILE_SIZE, borderSize); // Top
-            if (isWater(x, y + 1)) ctx.fillRect(px, py + TILE_SIZE - borderSize, TILE_SIZE, borderSize); // Bottom
-            if (isWater(x - 1, y)) ctx.fillRect(px, py, borderSize, TILE_SIZE); // Left
-            if (isWater(x + 1, y)) ctx.fillRect(px + TILE_SIZE - borderSize, py, borderSize, TILE_SIZE); // Right
-
         } else {
             // Water tile
             ctx.fillStyle = '#3b82f6'; 
@@ -295,22 +335,27 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         const owner = engine.players.find(p => p.id === tile.building!.ownerId);
         const color = owner ? owner.color : '#555';
 
-        drawBuilding(ctx, tile.building.type, px, py, TILE_SIZE, color);
+        // Center the larger icon on the small tile
+        // Tile Center: px + TILE_SIZE/2, py + TILE_SIZE/2
+        // Draw Top-Left: Center - DRAW_SIZE/2
+        const drawX = px + TILE_SIZE/2 - DRAW_SIZE/2;
+        const drawY = py + TILE_SIZE/2 - DRAW_SIZE/2;
+
+        drawBuilding(ctx, tile.building.type, drawX, drawY, DRAW_SIZE, color);
 
         // Under Construction Overlay
         if (tile.building.isUnderConstruction) {
             ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-            ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+            ctx.fillRect(drawX, drawY, DRAW_SIZE, DRAW_SIZE);
         }
 
         // Health bar
-        const pad = 1;
         const hpPct = tile.building.hp / tile.building.maxHp;
         if (hpPct < 1) {
             ctx.fillStyle = 'red';
-            ctx.fillRect(px + pad, py - 2, TILE_SIZE - pad*2, 1.5);
+            ctx.fillRect(drawX, drawY - 2, DRAW_SIZE, 1.5);
             ctx.fillStyle = '#22c55e';
-            ctx.fillRect(px + pad, py - 2, (TILE_SIZE - pad*2) * hpPct, 1.5);
+            ctx.fillRect(drawX, drawY - 2, DRAW_SIZE * hpPct, 1.5);
         }
       }
     }
@@ -323,7 +368,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
                 const screenY = u.y * TILE_SIZE + TILE_SIZE/2;
                 
                 ctx.beginPath();
-                ctx.arc(screenX, screenY, 2.5, 0, Math.PI * 2); // Smaller units
+                ctx.arc(screenX, screenY, 2.5, 0, Math.PI * 2); // Radius matches roughly TILE_SIZE of old (2.5) vs new (2)
                 ctx.fillStyle = p.color;
                 ctx.fill();
                 ctx.strokeStyle = 'white';
@@ -351,20 +396,50 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         });
     }
 
-    // Draw Attack Indicators
-    if (engine.attacks) {
-        engine.attacks.forEach(atk => {
-            const screenX = atk.targetX * TILE_SIZE;
-            const screenY = atk.targetY * TILE_SIZE;
+    // Pass 3: Player Labels
+    if (engine.players) {
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        engine.players.forEach(p => {
+            if (p.landArea > 50) { // Only show label if they have decent land
+                const cx = p.center.x * TILE_SIZE;
+                const cy = p.center.y * TILE_SIZE;
 
-            ctx.save();
-            ctx.strokeStyle = atk.color;
-            ctx.lineWidth = 2;
-            ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
-            ctx.restore();
+                // Dynamic sizing based on land area
+                // Area 500 = small, Area 5000 = large
+                const fontSize = Math.max(2, Math.min(20, Math.sqrt(p.landArea) * 0.4));
+                
+                ctx.font = `bold ${fontSize}px sans-serif`;
+                
+                // Name Shadow
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillText(p.name, cx + 0.5, cy + 0.5);
+
+                // Name Color
+                ctx.fillStyle = 'white';
+                ctx.fillText(p.name, cx, cy);
+
+                // Underline for AI
+                if (p.isAI) {
+                   const metrics = ctx.measureText(p.name);
+                   const width = metrics.width;
+                   ctx.strokeStyle = 'white';
+                   ctx.lineWidth = fontSize * 0.1;
+                   ctx.beginPath();
+                   ctx.moveTo(cx - width/2, cy + fontSize/2);
+                   ctx.lineTo(cx + width/2, cy + fontSize/2);
+                   ctx.stroke();
+                }
+                
+                // Population Count
+                ctx.font = `${fontSize * 0.7}px monospace`;
+                ctx.fillStyle = '#eab308'; // Yellow for pop
+                ctx.fillText(`${Math.floor(p.population)}`, cx, cy + fontSize * 1.1);
+            }
         });
     }
-
+    
     // Ghost Building Preview
     if (selectedBuildingType) {
         const mouseX = lastMousePos.current.x;
@@ -382,14 +457,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         
         const px = tileX * TILE_SIZE;
         const py = tileY * TILE_SIZE;
+        const drawX = px + TILE_SIZE/2 - DRAW_SIZE/2;
+        const drawY = py + TILE_SIZE/2 - DRAW_SIZE/2;
         
         ctx.globalAlpha = 0.6;
-        drawBuilding(ctx, selectedBuildingType as BuildingType, px, py, TILE_SIZE, color);
+        drawBuilding(ctx, selectedBuildingType as BuildingType, drawX, drawY, DRAW_SIZE, color);
         ctx.globalAlpha = 1.0;
         
         ctx.strokeStyle = canBuild ? '#4ade80' : '#ef4444';
         ctx.lineWidth = 1 / camera.zoom;
         if (ctx.lineWidth < 0.5) ctx.lineWidth = 0.5;
+        // Stroke the TILE, not the icon size
         ctx.strokeRect(px, py, TILE_SIZE, TILE_SIZE);
     }
 

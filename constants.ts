@@ -1,11 +1,12 @@
+
 import { BuildingType, ResourceType, UnitType } from './types';
 
 export const GAME_TICK_RATE = 100; // ms per tick for logic (10 ticks per second)
 export const RENDER_FPS = 60;
-export const TILE_SIZE = 4; // Smaller tiles for higher resolution map
+export const TILE_SIZE = 2; // Smaller tiles for higher resolution map
 
-export const MAP_WIDTH = 128; // Significantly larger map
-export const MAP_HEIGHT = 128;
+export const MAP_WIDTH = 256; // Significantly larger map (2x for finer grid)
+export const MAP_HEIGHT = 256;
 
 export const BUILDING_COSTS: Record<BuildingType, Record<ResourceType, number>> = {
   [BuildingType.KINGDOM]: { [ResourceType.GOLD]: 5000, [ResourceType.WOOD]: 2000, [ResourceType.STONE]: 2000, [ResourceType.FOOD]: 1000 },
@@ -40,24 +41,39 @@ export const UNIT_COSTS: Record<UnitType, Record<ResourceType, number>> = {
   [UnitType.BOAT]: { [ResourceType.GOLD]: 150, [ResourceType.WOOD]: 200, [ResourceType.STONE]: 0, [ResourceType.FOOD]: 50 },
 };
 
+// Speed and Range doubled to account for TILE_SIZE reduction (4->2) and Map Increase
 export const UNIT_STATS: Record<UnitType, { hp: number, attack: number, speed: number, range: number }> = {
-  [UnitType.SOLDIER]: { hp: 50, attack: 5, speed: 0.05, range: 0.5 },
-  [UnitType.SWORDSMAN]: { hp: 120, attack: 15, speed: 0.04, range: 0.5 },
-  [UnitType.ARCHER]: { hp: 80, attack: 12, speed: 0.05, range: 3 },
-  [UnitType.HORSE]: { hp: 200, attack: 20, speed: 0.08, range: 0.5 },
-  [UnitType.TREBUCHET]: { hp: 300, attack: 50, speed: 0.02, range: 6 },
-  [UnitType.BOAT]: { hp: 400, attack: 30, speed: 0.06, range: 4 },
+  [UnitType.SOLDIER]: { hp: 50, attack: 5, speed: 0.1, range: 1 },
+  [UnitType.SWORDSMAN]: { hp: 120, attack: 15, speed: 0.08, range: 1 },
+  [UnitType.ARCHER]: { hp: 80, attack: 12, speed: 0.1, range: 6 },
+  [UnitType.HORSE]: { hp: 200, attack: 20, speed: 0.16, range: 1 },
+  [UnitType.TREBUCHET]: { hp: 300, attack: 50, speed: 0.04, range: 12 },
+  [UnitType.BOAT]: { hp: 400, attack: 30, speed: 0.12, range: 8 },
 };
 
 export const PLAYER_COLORS = [
-  '#3b82f6', // Blue (Player)
-  '#ef4444', // Red
-  '#22c55e', // Green
-  '#eab308', // Yellow
-  '#a855f7', // Purple
-  '#ec4899', // Pink
-  '#f97316', // Orange
-  '#06b6d4', // Cyan
-  '#8b5cf6', // Violet
-  '#64748b', // Slate
+  '#ef4444', // Red 500
+  '#3b82f6', // Blue 500
+  '#22c55e', // Green 500
+  '#eab308', // Yellow 500
+  '#a855f7', // Purple 500
+  '#ec4899', // Pink 500
+  '#f97316', // Orange 500
+  '#06b6d4', // Cyan 500
+  '#8b5cf6', // Violet 500
+  '#64748b', // Slate 500
+  '#14b8a6', // Teal 500
+  '#84cc16', // Lime 500
+  '#f43f5e', // Rose 500
+  '#6366f1', // Indigo 500
+  '#d946ef', // Fuchsia 500
+  '#0ea5e9', // Sky 500
+  '#10b981', // Emerald 500
+  '#f59e0b', // Amber 500
+  '#78716c', // Stone 500
+  '#b91c1c', // Red 700
+  '#1d4ed8', // Blue 700
+  '#15803d', // Green 700
+  '#a16207', // Yellow 700
+  '#7e22ce', // Purple 700
 ];
