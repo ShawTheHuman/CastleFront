@@ -1,0 +1,5 @@
+{
+  "name": "CastleFront",
+  "description": "A mobile-first real-time strategy game inspired by io games. Build your castle, expand your territory, and command units to conquer opponents.",
+  "requestFramePermissions": []
+}
