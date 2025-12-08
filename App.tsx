@@ -18,13 +18,24 @@ enum ViewState {
 
 const PLAYER_ID = 'HUMAN_PLAYER';
 
-const AI_NAMES = [
-    "Cyber_Baron", "Techno_King", "Silicon_Duke", "Data_Lord",
-    "Quantum_Queen", "Circuit_Prince", "Binary_General", "Logic_Commander",
-    "Pixel_Warlord", "Voxel_Valkyrie", "Neural_Knight", "Android_Assassin",
-    "Robot_Rogue", "Mecha_Mage", "Giga_Giant", "Tera_Titan",
-    "Nano_Ninja", "Macro_Monk", "Echo_Element", "Vector_Viper"
+// --- NAME GENERATORS ---
+const KINGDOM_NAMES = [
+    "Aethelgard", "Brimstone", "Stormhold", "Ironclad", "Frostfall",
+    "Dragonreach", "Silvermoon", "Shadowfen", "Emberguard", "Ravenwatch",
+    "Goldspire", "Thunderpeak", "Windhaven", "Oakhollow", "Dawnstar",
+    "Winterfell", "Highgarden", "Riverrun", "Casterly", "StormsEnd"
 ];
+
+const CAMP_NAMES = [
+    "Rat's Nest", "Bone Heap", "Mud Pit", "Scrap Yard", "Vulture Roost",
+    "Dead End", "Dust Bowl", "Rust Camp", "Thieves Den", "Beggar's Hollow",
+    "Rotten Tooth", "Flea Bottom", "Skull Crag", "Grim Hook", "Lost Hope",
+    "Carrion Hill", "Maggot Camp", "Sludge Pit", "Ogre's Toe", "Goblin Hut",
+    "Broken Shield", "Rusted Blade", "Torn Flag", "Burnt Log", "Cold Stone",
+    "Wet Moss", "Dark Corner", "Rat Trap", "Snake Pit", "Crow's Beak"
+];
+
+const getRandomName = (list: string[]) => list[Math.floor(Math.random() * list.length)];
 
 const App: React.FC = () => {
     const [engine] = useState(() => new GameEngine({
@@ -84,7 +95,7 @@ const App: React.FC = () => {
                     const newLobby: Lobby = {
                         id: Math.random().toString(36).substr(2, 6).toUpperCase(),
                         mapName: `Fractal Isles ${Math.floor(Math.random() * 100)}`,
-                        maxPlayers: 20, // Increased max players for more AI
+                        maxPlayers: 40, // Increased for 30 camps + 8 kingdoms + humans
                         players: [],
                         createdAt: now,
                         expiresAt: now + 40000, // 40s wait
@@ -130,6 +141,7 @@ const App: React.FC = () => {
                         id: PLAYER_ID,
                         name: playerName,
                         isAI: false,
+                        aiType: 'HUMAN' as any,
                         color: PLAYER_COLORS[0]
                     }]
                 };
@@ -146,17 +158,29 @@ const App: React.FC = () => {
 
         // 2. Fill with Bots
         const roster: PlayerProfile[] = [...lobby.players];
-        const humansCount = roster.length;
-        const botsNeeded = lobby.maxPlayers - humansCount;
 
-        const shuffledNames = [...AI_NAMES].sort(() => 0.5 - Math.random());
-
-        for (let i = 0; i < botsNeeded; i++) {
+        // Add 30 Camps
+        for (let i = 0; i < 30; i++) {
             roster.push({
-                id: `BOT_${i}`,
-                name: shuffledNames[i % shuffledNames.length],
+                id: `CAMP_${i}`,
+                name: getRandomName(CAMP_NAMES),
                 isAI: true,
-                color: PLAYER_COLORS[(humansCount + i) % PLAYER_COLORS.length]
+                aiType: 'CAMP' as any,
+                color: '#57534e' // Stone-600 (Scavenger Neutral)
+            });
+        }
+
+        // Add Kingdoms until Full (or at least a few)
+        const kingdomsNeeded = Math.min(8, lobby.maxPlayers - roster.length);
+        const shuffledKingdoms = [...KINGDOM_NAMES].sort(() => 0.5 - Math.random());
+
+        for (let i = 0; i < kingdomsNeeded; i++) {
+            roster.push({
+                id: `KINGDOM_${i}`,
+                name: shuffledKingdoms[i % shuffledKingdoms.length],
+                isAI: true,
+                aiType: 'KINGDOM' as any,
+                color: PLAYER_COLORS[(roster.length) % PLAYER_COLORS.length]
             });
         }
 

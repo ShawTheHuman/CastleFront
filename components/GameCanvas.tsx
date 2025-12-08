@@ -391,7 +391,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.textBaseline = 'middle';
 
       engine.players.forEach(p => {
-        if (p.landArea > 50) { // Only show label if they have decent land
+        if (p.landArea > 5) { // Only show label if they have decent land
           const cx = p.center.x * TILE_SIZE;
           const cy = p.center.y * TILE_SIZE;
 

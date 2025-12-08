@@ -32,11 +32,18 @@ export interface Coordinates {
   y: number;
 }
 
+export enum AIType {
+  HUMAN = 'HUMAN',
+  KINGDOM = 'KINGDOM',
+  CAMP = 'CAMP'
+}
+
 export interface Player {
   id: string;
   name: string; // Added Name
   color: string;
   isAI: boolean;
+  aiType: AIType; // NEW
   resources: Record<ResourceType, number>;
   income: Record<ResourceType, number>;
   population: number;
@@ -54,6 +61,7 @@ export interface PlayerProfile {
   id: string;
   name: string;
   isAI: boolean;
+  aiType: AIType;
   color: string;
 }
 

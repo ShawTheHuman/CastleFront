@@ -1,4 +1,4 @@
-import { BuildingType, GameConfig, Player, ResourceType, Tile, Unit, UnitType, Building, AttackWave, PlayerProfile, MatchLog } from '../types';
+import { BuildingType, GameConfig, Player, ResourceType, Tile, Unit, UnitType, Building, AttackWave, PlayerProfile, MatchLog, AIType } from '../types';
 import { BUILDING_STATS, BUILDING_COSTS, UNIT_STATS, PLAYER_COLORS, MAP_HEIGHT, MAP_WIDTH, UNIT_COSTS } from '../constants';
 
 export class GameEngine {
@@ -144,7 +144,7 @@ export class GameEngine {
     setupPlayers(roster: PlayerProfile[]) {
         this.players = [];
         roster.forEach(p => {
-            this.players.push(this.createPlayer(p.id, p.name, p.color, p.isAI));
+            this.players.push(this.createPlayer(p.id, p.name, p.color, p.isAI, p.aiType));
         });
     }
 
@@ -152,16 +152,17 @@ export class GameEngine {
         return this.players.find(p => p.id === id);
     }
 
-    createPlayer(id: string, name: string, color: string, isAI: boolean): Player {
+    createPlayer(id: string, name: string, color: string, isAI: boolean, aiType: AIType): Player {
         return {
             id,
             name,
             color,
             isAI,
-            resources: { [ResourceType.GOLD]: 500, [ResourceType.WOOD]: 300, [ResourceType.STONE]: 100, [ResourceType.FOOD]: 300 },
+            aiType,
+            resources: { [ResourceType.GOLD]: 100, [ResourceType.WOOD]: 100, [ResourceType.STONE]: 50, [ResourceType.FOOD]: 50 },
             income: { [ResourceType.GOLD]: 0, [ResourceType.WOOD]: 0, [ResourceType.STONE]: 0, [ResourceType.FOOD]: 0 },
-            population: 100,
-            maxPopulation: 500,
+            population: 5,
+            maxPopulation: 0,
             militaryPopulation: 0,
             attackTarget: null,
             units: [],
@@ -205,17 +206,30 @@ export class GameEngine {
             }
 
             if (bestSpot) {
-                this.placeBuilding(p.id, BuildingType.KINGDOM, bestSpot.x, bestSpot.y, true);
-                this.claimRadius(p.id, bestSpot.x, bestSpot.y, 8); // Double radius
-                // Also explicitly reinforce the 5x5 core
-                for (let dy = -2; dy <= 2; dy++) {
-                    for (let dx = -2; dx <= 2; dx++) {
-                        const nx = bestSpot.x + dx;
-                        const ny = bestSpot.y + dy;
-                        if (this.isValid(nx, ny)) {
-                            const t = this.tiles[ny][nx];
-                            t.ownerId = p.id;
-                            t.defense = 200;
+                // DIFFERENCE: Camps do NOT get a Kingdom building
+                if (p.aiType === AIType.CAMP) {
+                    // Just claim land
+                    const claimedCount = this.claimRadius(p.id, bestSpot.x, bestSpot.y, 2); // Smaller radius for camps
+                    p.maxPopulation = claimedCount * 10;
+
+                    // Give them a headstart on pop since they don't have a building for bonus defense
+                    p.population = 10;
+                } else {
+                    // Kingdoms get a base
+                    this.placeBuilding(p.id, BuildingType.KINGDOM, bestSpot.x, bestSpot.y, true);
+                    const claimedCount = this.claimRadius(p.id, bestSpot.x, bestSpot.y, 4); // Radius 4
+                    p.maxPopulation = claimedCount * 10;
+
+                    // Reinforce core
+                    for (let dy = -2; dy <= 2; dy++) {
+                        for (let dx = -2; dx <= 2; dx++) {
+                            const nx = bestSpot.x + dx;
+                            const ny = bestSpot.y + dy;
+                            if (this.isValid(nx, ny)) {
+                                const t = this.tiles[ny][nx];
+                                t.ownerId = p.id;
+                                t.defense = 200;
+                            }
                         }
                     }
                 }
@@ -227,7 +241,13 @@ export class GameEngine {
     spawnHumanBase(playerId: string, x: number, y: number): boolean {
         if (this.isValidSpawn(x, y)) {
             this.placeBuilding(playerId, BuildingType.KINGDOM, x, y, true);
-            this.claimRadius(playerId, x, y, 8); // Double radius
+            const claimedCount = this.claimRadius(playerId, x, y, 4); // Radius 4
+
+            const player = this.players.find(p => p.id === playerId);
+            if (player) {
+                player.maxPopulation = claimedCount * 10;
+            }
+
             // Reinforce 5x5 core
             for (let dy = -2; dy <= 2; dy++) {
                 for (let dx = -2; dx <= 2; dx++) {
@@ -306,7 +326,8 @@ export class GameEngine {
         return true;
     }
 
-    claimRadius(playerId: string, cx: number, cy: number, radius: number) {
+    claimRadius(playerId: string, cx: number, cy: number, radius: number): number {
+        let count = 0;
         for (let y = cy - radius; y <= cy + radius; y++) {
             for (let x = cx - radius; x <= cx + radius; x++) {
                 if (this.isValid(x, y)) {
@@ -316,11 +337,13 @@ export class GameEngine {
                         if (tile.type === 'LAND' && !tile.ownerId) {
                             tile.ownerId = playerId;
                             tile.defense = 50 + tile.elevation * 5; // Higher defense on higher ground for base
+                            count++;
                         }
                     }
                 }
             }
         }
+        return count;
     }
     // ... rest of class remains unchanged ...
     isAdjacentToPlayer(x: number, y: number, playerId: string): boolean {
@@ -348,7 +371,7 @@ export class GameEngine {
         if (targetOwner === playerId) return;
 
         const player = this.players.find(p => p.id === playerId);
-        if (!player || player.population <= 5) return;
+        if (!player || player.population <= 2) return;
 
         const amountToSend = Math.floor(player.population * (percentage / 100));
         if (amountToSend <= 0) return;
@@ -778,11 +801,9 @@ export class GameEngine {
                         // Special Population Rules
                         if (b.type === BuildingType.TOWN) {
                             stats.popGrowth += 10;
-                            stats.maxPop += 5000;
                         } else if (b.type === BuildingType.CASTLE || b.type === BuildingType.KINGDOM) {
                             // Kingdom treated as Castle tier or higher
                             stats.popGrowth += 100;
-                            stats.maxPop += 10000;
                         }
                     }
                 }
@@ -1097,44 +1118,84 @@ export class GameEngine {
 
     updateAI() {
         this.players.filter(p => p.isAI).forEach(ai => {
-            // Economy
-            if (ai.resources[ResourceType.GOLD] > 1000) {
-                this.tryBuildAI(ai, BuildingType.CASTLE);
-            } else if (ai.resources[ResourceType.WOOD] > 200 && Math.random() > 0.5) {
-                this.tryBuildAI(ai, BuildingType.WOODCUTTER);
-            }
 
-            // Expansion logic
-            // Simple AI logic: Pick random Neutral neighbor and attack
-            if (ai.population > 50 && Math.random() > 0.5) {
+            if (ai.aiType === AIType.KINGDOM) {
+                // --- KINGDOM LOGIC (Smart, Buildings) ---
 
-                // AI decides to expand or attack
-                // Find a random border tile
-                const borderTiles: Tile[] = [];
-                for (let y = 0; y < this.config.mapHeight; y += 4) { // Scan optimization
-                    for (let x = 0; x < this.config.mapWidth; x += 4) {
-                        if (this.tiles[y][x].ownerId === ai.id) borderTiles.push(this.tiles[y][x]);
-                    }
+                // Economy Build
+                if (ai.resources[ResourceType.GOLD] > 1000) {
+                    this.tryBuildAI(ai, BuildingType.CASTLE);
+                } else if (ai.resources[ResourceType.WOOD] > 200 && Math.random() > 0.5) {
+                    this.tryBuildAI(ai, BuildingType.WOODCUTTER);
                 }
 
-                if (borderTiles.length > 0) {
-                    const src = borderTiles[Math.floor(Math.random() * borderTiles.length)];
-                    const neighbors = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
-                    const validN = neighbors.map(n => {
-                        const nx = src.x + n.x;
-                        const ny = src.y + n.y;
-                        if (this.isValid(nx, ny)) return this.tiles[ny][nx];
-                        return null;
-                    }).filter(t => t && t.ownerId !== ai.id);
+                // Expansion
+                if (ai.population > 25 && Math.random() > 0.2) { // Increased chance
+                    this.aiExpand(ai, 20); // 20% commitment
+                }
+            } else if (ai.aiType === AIType.CAMP) {
+                // --- CAMP LOGIC (Dumb, Aggressive, No Buildings) ---
 
-                    if (validN.length > 0) {
-                        const target = validN[Math.floor(Math.random() * validN.length)];
-                        // "Click" on this target
-                        this.distributeExpansion(ai.id, target!.x, target!.y, 20); // 20% commitment
+                // Aggressive Expansion: If they have ANY population, try to expand.
+                // They don't save for buildings.
+                if (ai.population > 2) {
+                    // Try to attack very frequently
+                    if (Math.random() > 0.1) { // Even more aggressive (90% chance)
+                        // 50% commitment - highly aggressive
+                        this.aiExpand(ai, 50);
                     }
                 }
             }
         });
+    }
+
+    aiExpand(ai: Player, percent: number) {
+        // Dynamic scan step: If small, scan every tile. If huge, optimize.
+        const scanStep = ai.landArea < 50 ? 1 : 4;
+
+        // Find potential border tiles (tiles owned by AI that have at least one non-owned neighbor)
+        const borderCandidates: Tile[] = [];
+
+        for (let y = 0; y < this.config.mapHeight; y += scanStep) {
+            for (let x = 0; x < this.config.mapWidth; x += scanStep) {
+                const tile = this.tiles[y][x];
+                if (tile.ownerId === ai.id) {
+                    const neighbors = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
+                    const hasExternalNeighbor = neighbors.some(n => {
+                        const nx = x + n.x;
+                        const ny = y + n.y;
+                        if (!this.isValid(nx, ny)) return false;
+                        const neighbor = this.tiles[ny][nx];
+                        return neighbor.type === 'LAND' && neighbor.ownerId !== ai.id;
+                    });
+
+                    if (hasExternalNeighbor) {
+                        borderCandidates.push(tile);
+                    }
+                }
+            }
+        }
+
+        if (borderCandidates.length > 0) {
+            // Try up to 3 times to find a valid expansion
+            for (let attempt = 0; attempt < 3; attempt++) {
+                const src = borderCandidates[Math.floor(Math.random() * borderCandidates.length)];
+                const neighbors = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
+
+                const validTargets = neighbors.map(n => {
+                    const nx = src.x + n.x;
+                    const ny = src.y + n.y;
+                    if (this.isValid(nx, ny)) return this.tiles[ny][nx];
+                    return null;
+                }).filter(t => t && t.type === 'LAND' && t.ownerId !== ai.id);
+
+                if (validTargets.length > 0) {
+                    const target = validTargets[Math.floor(Math.random() * validTargets.length)];
+                    this.distributeExpansion(ai.id, target!.x, target!.y, percent);
+                    break; // Success
+                }
+            }
+        }
     }
 
     tryBuildAI(player: Player, type: BuildingType) {
