@@ -54,6 +54,7 @@ export interface Player {
   // For Map Labels
   center: Coordinates;
   landArea: number;
+  ownedTiles: Tile[];
 }
 
 // Used for passing config from Lobby to Game Engine

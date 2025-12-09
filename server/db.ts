@@ -18,7 +18,7 @@ if (process.env.NETLIFY_DATABASE_URL) {
 
     // Test connection
     pool.connect().then(() => {
-        console.log('Connected to Neon Database');
+
         isDbConnected = true;
         initDB();
     }).catch(err => {
@@ -52,15 +52,7 @@ async function initDB() {
             );
         `);
 
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS snapshots (
-                id SERIAL PRIMARY KEY,
-                game_id TEXT REFERENCES games(id),
-                tick INTEGER,
-                state JSONB,
-                created_at TIMESTAMP DEFAULT NOW()
-            );
-        `);
+        // Snapshots table REMOVED
 
         await pool.query(`
             CREATE TABLE IF NOT EXISTS maps (
@@ -73,7 +65,7 @@ async function initDB() {
             );
         `);
 
-        console.log('Database tables initialized.');
+
     } catch (err: any) {
         console.error('Error initializing DB tables:', err.message);
     }
@@ -81,17 +73,7 @@ async function initDB() {
 
 // --- DATA ACCESS METHODS ---
 
-export async function dbSaveSnapshot(gameId: string, tick: number, state: any) {
-    if (!pool) return;
-    try {
-        await pool.query(`
-            INSERT INTO snapshots (game_id, tick, state)
-            VALUES ($1, $2, $3)
-        `, [gameId, tick, JSON.stringify(state)]);
-    } catch (err: any) {
-        console.error('dbSaveSnapshot error:', err.message);
-    }
-}
+// dbSaveSnapshot REMOVED
 
 export async function dbSavePlayer(id: string, name: string) {
     if (!pool) return;
@@ -161,7 +143,7 @@ export async function dbSaveMap(map: MapData) {
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (id) DO NOTHING
         `, [map.id, map.name, map.width, map.height, JSON.stringify(map.tiles)]);
-        console.log(`Saved map: ${map.name}`);
+
     } catch (err: any) {
         console.error('dbSaveMap error:', err.message);
     }

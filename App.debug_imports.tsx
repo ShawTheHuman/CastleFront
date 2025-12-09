@@ -6,9 +6,9 @@ import { io } from 'socket.io-client';
 
 const App: React.FC = () => {
     // Just force a reference to ensure webpack/vite includes them
-    console.log("GameEngine class:", GameEngine);
-    console.log("UIOverlay component:", UIOverlay);
-    console.log("Socket IO:", io);
+    // console.log("GameEngine class:", GameEngine);
+    // console.log("UIOverlay component:", UIOverlay);
+    // console.log("Socket IO:", io);
 
     return (
         <div style={{ color: 'white', fontSize: '40px', padding: '50px' }}>

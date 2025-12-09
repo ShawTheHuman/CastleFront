@@ -138,6 +138,73 @@ const GameCanvasComponent: React.FC<GameCanvasProps> = ({
     }
   }, [engine.tiles, engine.config.mapWidth, engine.config.mapHeight]); // Only rebuild if tiles array reference changes (new map)
 
+  const ownershipCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastTickRef = useRef<number>(-1);
+
+  // --- 1.5 OWNERSHIP CACHING ---
+  // Rebuild only when game tick advances (10fps max)
+  useEffect(() => {
+    if (!engine.tiles || engine.tiles.length === 0) return;
+
+    // Only update if tick changed
+    if (engine.tickCount === lastTickRef.current) return;
+    lastTickRef.current = engine.tickCount;
+
+    if (!ownershipCanvasRef.current) {
+      ownershipCanvasRef.current = document.createElement('canvas');
+      ownershipCanvasRef.current.width = engine.config.mapWidth * TILE_SIZE;
+      ownershipCanvasRef.current.height = engine.config.mapHeight * TILE_SIZE;
+    }
+
+    const oCtx = ownershipCanvasRef.current.getContext('2d');
+    if (!oCtx) return;
+
+    // CLEAR
+    oCtx.clearRect(0, 0, ownershipCanvasRef.current.width, ownershipCanvasRef.current.height);
+
+    const BORDER_WIDTH = 0.5;
+
+    // Optimization: Loop through owned tiles of each player instead of full map?
+    // Engine doesn't easily expose "list of all owned tiles" efficiently across all players without iterating players.
+    // engine.players has ownedTiles.
+
+    engine.players.forEach(p => {
+      if (p.ownedTiles.length === 0) return;
+
+      const color = p.color;
+      const borderColor = darkenColor(color, 0.4);
+      const rgba = hexToRgba(color, 0.3);
+
+      p.ownedTiles.forEach(tile => {
+        const px = tile.x * TILE_SIZE;
+        const py = tile.y * TILE_SIZE;
+
+        // Fill
+        oCtx.fillStyle = rgba;
+        oCtx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+
+        // Borders
+        oCtx.fillStyle = borderColor;
+
+        // Check neighbors (using engine grid)
+        const checkNeighbor = (dx: number, dy: number) => {
+          const nx = tile.x + dx;
+          const ny = tile.y + dy;
+          // Edges are borders
+          if (nx < 0 || ny < 0 || nx >= engine.config.mapWidth || ny >= engine.config.mapHeight) return true;
+          const neighbor = engine.tiles[ny][nx];
+          return neighbor.ownerId !== tile.ownerId;
+        };
+
+        if (checkNeighbor(0, -1)) oCtx.fillRect(px, py, TILE_SIZE, BORDER_WIDTH); // Top
+        if (checkNeighbor(0, 1)) oCtx.fillRect(px, py + TILE_SIZE - BORDER_WIDTH, TILE_SIZE, BORDER_WIDTH); // Bottom
+        if (checkNeighbor(-1, 0)) oCtx.fillRect(px, py, BORDER_WIDTH, TILE_SIZE); // Left
+        if (checkNeighbor(1, 0)) oCtx.fillRect(px + TILE_SIZE - BORDER_WIDTH, py, BORDER_WIDTH, TILE_SIZE); // Right
+      });
+    });
+
+  }, [engine.tickCount, engine.players, engine.tiles]); // Re-run on tick or player updates
+
 
   const drawBuilding = (ctx: CanvasRenderingContext2D, type: BuildingType, x: number, y: number, size: number, color: string) => {
     ctx.save();
@@ -294,9 +361,18 @@ const GameCanvasComponent: React.FC<GameCanvasProps> = ({
       );
     }
 
-    // PASS 2: DYNAMIC OVERLAYS (Ownership, Borders, Buildings)
-    // We strictly iterate visibly ONLY.
-    const BORDER_WIDTH = 0.5;
+    // PASS 2: DYNAMIC OVERLAYS (Ownership, Borders) - CACHED
+    // We cache this because calculating borders for 65k tiles is expensive.
+    // We only redraw if cachedOwnershipRef is dirty (controlled below).
+    if (ownershipCanvasRef.current) {
+      ctx.drawImage(
+        ownershipCanvasRef.current,
+        0, 0, engine.config.mapWidth * TILE_SIZE, engine.config.mapHeight * TILE_SIZE,
+        0, 0, engine.config.mapWidth * TILE_SIZE, engine.config.mapHeight * TILE_SIZE
+      );
+    }
+
+    // Iterate visibly for BUILDINGS ONLY now
     const DRAW_SIZE = TILE_SIZE * 2.5;
 
     for (let y = Math.max(0, startRow); y < Math.min(engine.config.mapHeight, endRow + 2); y++) {
@@ -306,39 +382,10 @@ const GameCanvasComponent: React.FC<GameCanvasProps> = ({
         const tile = engine.tiles[y][x];
         if (!tile) continue;
 
-        const px = x * TILE_SIZE;
-        const py = y * TILE_SIZE;
-
-        // Ownership & Borders
-        if (tile.ownerId && tile.type === 'LAND') {
-          const owner = playerMap.get(tile.ownerId);
-          if (owner) {
-            // Transparent Overlay
-            ctx.fillStyle = hexToRgba(owner.color, 0.3);
-            ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-
-            // Border Logic
-            const borderColor = darkenColor(owner.color, 0.4);
-            ctx.fillStyle = borderColor;
-
-            const checkNeighbor = (dx: number, dy: number) => {
-              const nx = x + dx;
-              const ny = y + dy;
-              // Treat map edges as borders
-              if (nx < 0 || ny < 0 || nx >= engine.config.mapWidth || ny >= engine.config.mapHeight) return true;
-              const neighbor = engine.tiles[ny][nx];
-              return neighbor.ownerId !== tile.ownerId;
-            };
-
-            if (checkNeighbor(0, -1)) ctx.fillRect(px, py, TILE_SIZE, BORDER_WIDTH); // Top
-            if (checkNeighbor(0, 1)) ctx.fillRect(px, py + TILE_SIZE - BORDER_WIDTH, TILE_SIZE, BORDER_WIDTH); // Bottom
-            if (checkNeighbor(-1, 0)) ctx.fillRect(px, py, BORDER_WIDTH, TILE_SIZE); // Left
-            if (checkNeighbor(1, 0)) ctx.fillRect(px + TILE_SIZE - BORDER_WIDTH, py, BORDER_WIDTH, TILE_SIZE); // Right
-          }
-        }
-
         // Buildings
         if (tile.building) {
+          const px = x * TILE_SIZE;
+          const py = y * TILE_SIZE;
           const owner = playerMap.get(tile.building.ownerId);
           const color = owner ? owner.color : '#555';
 

@@ -2,7 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
-import { dbSavePlayer, dbCreateGame, dbUpdateGameStatus, dbGetRandomMap, dbSaveSnapshot } from './db.ts';
+import { dbSavePlayer, dbCreateGame, dbUpdateGameStatus, dbGetRandomMap } from './db.ts';
 
 const app = express();
 const httpServer = createServer(app);
@@ -22,6 +22,9 @@ interface Player {
     name: string;
     socketId: string;
     lobbyId: string | null;
+    isAI: boolean;
+    aiType: any; // Using any to avoid importing enum for now
+    color: string;
 }
 
 interface Lobby {
@@ -44,7 +47,7 @@ const lobbyMaps: Record<string, any> = {}; // Store map data for lobbies
 // --- LOGIC ---
 
 io.on('connection', (socket: Socket) => {
-    console.log(`Client connected: ${socket.id}`);
+
 
     // 1. REGISTER PLAYER
     socket.on('register', (name: string) => {
@@ -134,24 +137,24 @@ io.on('connection', (socket: Socket) => {
 
     // 5. START GAME
     socket.on('start_game', () => {
-        console.log(`Received start_game request from ${socket.id}`);
+
         const player = players[socket.id];
         if (!player) {
-            console.log(`Player not found for socket ${socket.id}`);
+
             return;
         }
         if (!player.lobbyId) {
-            console.log(`Player ${player.name} is not in a lobby`);
+
             return;
         }
 
         const lobby = lobbies[player.lobbyId];
         if (!lobby) {
-            console.log(`Lobby ${player.lobbyId} not found`);
+
             return;
         }
 
-        console.log(`Start Game Request - Player: ${player.id}, Host: ${lobby.hostId}, Lobby Status: ${lobby.status}`);
+
 
         if (lobby.hostId === player.id) {
             lobby.status = 'IN_PROGRESS';
@@ -164,24 +167,18 @@ io.on('connection', (socket: Socket) => {
                 lobby,
                 mapData: lobbyMaps[lobby.id]
             });
-            console.log(`Game started for lobby ${lobby.id}`);
+
         } else {
-            console.log(`Player ${player.id} is not host of lobby ${lobby.id} (Host: ${lobby.hostId})`);
         }
     });
 
     // 6. SAVE SNAPSHOT
-    socket.on('save_snapshot', (data: { lobbyId: string, tick: number, state: any }) => {
-        if (data.lobbyId && data.state) {
-            import('./db.ts').then(db => {
-                db.dbSaveSnapshot(data.lobbyId, data.tick, data.state);
-            });
-        }
-    });
+    // 6. SAVE SNAPSHOT (REMOVED)
+
 
     // DISCONNECT
     socket.on('disconnect', () => {
-        console.log(`Client disconnected: ${socket.id}`);
+
         handlePlayerDisconnect(socket);
     });
 });
@@ -246,7 +243,6 @@ setInterval(async () => {
         lobbyMaps[lobbyId] = map; // Store data
 
         io.emit('lobbies_update', Object.values(lobbies));
-        console.log(`Auto-created lobby: ${lobbyId} with map: ${mName}`);
     }
 }, 5000);
 

@@ -80,10 +80,9 @@ const AppContent = ({ engine }: { engine: GameEngine }) => {
 
         if (newSocket) {
             newSocket.on('connect', () => {
-                console.log('Connected to Game Server');
+
                 // Auto-register if we have a name (Reconnection Logic)
                 if (playerNameRef.current) {
-                    console.log('Auto-registering on reconnect:', playerNameRef.current);
                     newSocket.emit('register', playerNameRef.current);
                 }
             });
@@ -97,18 +96,15 @@ const AppContent = ({ engine }: { engine: GameEngine }) => {
             });
 
             newSocket.on('registered', (player: PlayerProfile) => {
-                console.log('Registered with Server. ID:', player.id);
                 setPlayerId(player.id);
             });
 
             newSocket.on('game_start', (data: { lobby: Lobby, mapData: any }) => {
-                console.log('CLIENT RECEIVED game_start!', data);
                 // Use Ref to check if this is our lobby
                 if (data.lobby.id === activeLobbyIdRef.current) {
-                    console.log('Lobby ID Matches! Starting game...');
                     startGameFromLobby(data.lobby, data.mapData);
                 } else {
-                    console.warn('Lobby ID Mismatch in game_start:', data.lobby.id, 'vs', activeLobbyIdRef.current);
+
                 }
             });
         }
@@ -174,7 +170,6 @@ const AppContent = ({ engine }: { engine: GameEngine }) => {
         if (!engine) return;
 
         // Re-init engine with players
-        console.log("Starting match with map:", mapData?.name || "Procedural");
 
         // Add Bots
         const roster = [...lobby.players];
@@ -213,17 +208,8 @@ const AppContent = ({ engine }: { engine: GameEngine }) => {
                 engine.update(100);
                 // setGameStateToken(p => p + 1); // REMOVED: No longer forcing App re-render
 
-                // Auto-Save Snapshot
-                if (engine.tickCount % 100 === 0 && activeLobbyId) {
-                    const snapshot = {
-                        players: engine.players.map(p => ({ id: p.id, pop: p.population, mil: p.militaryPopulation })),
-                    };
-                    socketRef.current?.emit('save_snapshot', {
-                        lobbyId: activeLobbyId,
-                        tick: engine.tickCount,
-                        state: snapshot
-                    });
-                }
+                // Auto-Save Snapshot (REMOVED)
+
 
                 if (engine.isGameOver) {
                     setMatchResult(engine.getMatchLog());
@@ -452,7 +438,6 @@ const AppContent = ({ engine }: { engine: GameEngine }) => {
                         <div>
                             <h2 className="text-4xl font-black text-amber-100 font-display mb-1 drop-shadow-lg">WAR ROOM</h2>
                             <p className="text-amber-700 text-sm tracking-[0.2em] font-serif uppercase">Province: {activeLobbyId} // The Highlands</p>
-                            <p className="text-xs text-stone-600">DEBUG: Host={currentLobby.hostId} | Me={PLAYER_ID} | Match={currentLobby.hostId === PLAYER_ID ? 'YES' : 'NO'}</p>
                         </div>
                         <div className="text-right">
                             <div className="text-[10px] text-stone-500 uppercase font-bold mb-1">State</div>
@@ -487,7 +472,6 @@ const AppContent = ({ engine }: { engine: GameEngine }) => {
                             <div className="w-full space-y-3">
                                 <button
                                     onClick={() => {
-                                        console.log('CLICKED SOUND HORNS. Socket:', socketRef.current?.id);
                                         socketRef.current?.emit('start_game');
                                     }}
                                     className="w-full py-4 lord-button text-amber-100 font-bold rounded shadow-lg font-display text-xl tracking-widest uppercase border border-amber-500/30"

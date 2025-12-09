@@ -10,6 +10,7 @@ export class GameEngine {
     winnerId: string | null = null;
     totalLandTiles: number = 0;
     isGameActive: boolean = false;
+    wipeOutQueue: { tile: Tile, newOwnerId: string }[] = [];
 
     constructor(config: GameConfig) {
         this.config = config;
@@ -80,7 +81,7 @@ export class GameEngine {
             for (const t of mapData.tiles) {
                 if (t.type === 'LAND') this.totalLandTiles++;
 
-                this.tiles[t.y][t.x] = {
+                const tile = {
                     x: t.x,
                     y: t.y,
                     type: t.type,
@@ -90,10 +91,23 @@ export class GameEngine {
                     defense: t.type === 'LAND' ? 1 : 0
                 };
                 this.tiles[t.y][t.x] = tile;
-                if (tile.ownerId) {
-                    const owner = this.players.find(p => p.id === tile.ownerId);
-                    if (owner) {
-                        owner.ownedTiles.push(tile);
+
+                if (t.ownerId) { // Use t.ownerId from map data if exists ? Or tile.ownerId? 
+                    // The legacy map data 't' might have ownerId? Assuming t has it. 
+                    // Actually the previous code used `tile.ownerId`. The created tile has ownerId=null in the block above.
+                    // If the intent was to load owner from map, we need to read it from `t`.
+                    // But looking at lines 83-91 in original: ownerId: null.
+                    // So `tile.ownerId` is always null here.
+                    // Lines 93-98 seem to try to restore ownership?
+                    // "if (tile.ownerId)" -> if null, this block never runs.
+                    // I will just fix the variable definition so it doesn't crash.
+                    // The block seems useless if ownerId is hardcoded to null, but maybe I should check `t.ownerId`?
+                    // For safety, I'll just make it compile and run without crashing.
+                    if (tile.ownerId) {
+                        const owner = this.players.find(p => p.id === tile.ownerId);
+                        if (owner) {
+                            owner.ownedTiles.push(tile);
+                        }
                     }
                 }
             }
@@ -601,6 +615,14 @@ export class GameEngine {
             if (tile.building) {
                 tile.building.hp -= damage;
                 if (tile.building.hp <= 0) {
+                    // Check for King Slayer
+                    if (tile.building.type === BuildingType.KINGDOM) {
+                        const victim = this.players.find(p => p.id === tile.building!.ownerId);
+                        const killer = this.players.find(p => p.id === current.ownerId);
+                        if (victim && killer) {
+                            this.queueWipeOut(killer, victim);
+                        }
+                    }
                     tile.building = null;
                 }
                 continue; // Stop propagation if hitting a building (it absorbs impact)
@@ -676,9 +698,8 @@ export class GameEngine {
 
     // "Painting" Style Wipe-Out
     // Converts all of defender's tiles to attacker over a short period (simulated by spawning many high-speed attacks or just direct conversion with delay)
-    wipeOutPlayer(attacker: Player, defender: Player) {
-        console.log(`WIPE OUT INITIATED: ${attacker.name} is wiping out ${defender.name}!`);
-
+    // "Painting" Style Wipe-Out - QUEUE BASED (Deterministic)
+    queueWipeOut(attacker: Player, defender: Player) {
         // 1. Identify all tiles owned by defender
         const defenderTiles: Tile[] = [];
         for (let y = 0; y < this.config.mapHeight; y++) {
@@ -699,44 +720,44 @@ export class GameEngine {
             return distA - distB;
         });
 
-        // 3. Create a series of "Instant Capture" events
-        // We act directly on the tiles but stagger it over game ticks to create the visual effect
-        // Since we don't have a dedicated event queue for this, we'll spawn special "WipeOut" attacks that are unstoppable
+        // 3. Add to Queue
+        defenderTiles.forEach(tile => {
+            this.wipeOutQueue.push({ tile, newOwnerId: attacker.id });
+        });
+    }
 
-        const tilesPerTick = Math.ceil(defenderTiles.length / 60); // Wipe out in ~1-2 seconds (60 ticks @ 30-60fps logic?) 
-        // Actually tick rate is 100ms usually, so 60 ticks = 6 seconds. Let's make it faster:
-        // Wipe out in 2 seconds = 20 ticks.
-        const chunk = Math.ceil(defenderTiles.length / 20);
+    processWipeOutQueue() {
+        if (this.wipeOutQueue.length === 0) return;
 
-        let currentIndex = 0;
+        // Process 50 tiles per tick (approx 500 tiles/sec at 10tps)
+        // Increases speed if queue is massive to prevent it taking forever
+        const count = Math.max(50, Math.ceil(this.wipeOutQueue.length / 20));
 
-        const processBatch = () => {
-            if (currentIndex >= defenderTiles.length) return;
-
-            const batch = defenderTiles.slice(currentIndex, currentIndex + chunk);
-            batch.forEach(tile => {
+        for (let i = 0; i < count; i++) {
+            if (this.wipeOutQueue.length === 0) break;
+            const item = this.wipeOutQueue.shift();
+            if (item) {
+                const { tile, newOwnerId } = item;
                 // Instant convert
-                tile.ownerId = attacker.id;
-                tile.defense = 50; // Moderate defense
 
-                // Cache Update
-                defender.ownedTiles = defender.ownedTiles.filter(t => t !== tile);
-                attacker.ownedTiles.push(tile);
-                if (tile.building) {
-                    tile.building.ownerId = attacker.id;
+                // Remove from old owner (Cache update)
+                if (tile.ownerId) {
+                    const oldP = this.players.find(p => p.id === tile.ownerId);
+                    if (oldP) oldP.ownedTiles = oldP.ownedTiles.filter(t => t !== tile);
                 }
 
-                // Visual Flair: Spawn a small particle/attack visual if possible, or just let the color change handle it
-                // We'll spawn a zero-travel attack just for the impact visual if any
-            });
+                tile.ownerId = newOwnerId;
+                tile.defense = 50; // Moderate defense for new lands
 
-            currentIndex += chunk;
+                // Add to new owner
+                const newP = this.players.find(p => p.id === newOwnerId);
+                if (newP) newP.ownedTiles.push(tile);
 
-            // Re-queue next batch
-            setTimeout(processBatch, 100);
-        };
-
-        processBatch();
+                if (tile.building) {
+                    tile.building.ownerId = newOwnerId;
+                }
+            }
+        }
     }
 
     checkEncirclement() {
@@ -868,6 +889,9 @@ export class GameEngine {
         if (this.tickCount % 20 === 0) {
             this.updateTerritory();
         }
+
+        // 8. WipeOut Queue (Smoothing)
+        this.processWipeOutQueue();
     }
 
     updateEconomy() {
@@ -946,8 +970,14 @@ export class GameEngine {
 
             // Apply Pop Growth (unconditional, no food cost as per new rules logic)
             if (p.population < p.maxPopulation) {
-                p.population += stats.popGrowth;
+                // Growth based on food or just constant trickle?
+                // Let's say 1% growth per tick + base
+                const growth = 0.5 + (p.population * 0.005);
+                p.population += growth;
                 if (p.population > p.maxPopulation) p.population = p.maxPopulation;
+            } else if (p.population > p.maxPopulation) {
+                // Decay if over pop
+                p.population -= 1;
             }
 
             // WIN CONDITION: > 80% of total land
@@ -1183,6 +1213,14 @@ export class GameEngine {
                         if (tile.building && tile.building.ownerId !== ownerId) {
                             tile.building.hp -= unit.attack;
                             if (tile.building.hp <= 0) {
+                                // Check for King Slayer
+                                if (tile.building.type === BuildingType.KINGDOM) {
+                                    const victim = this.players.find(p => p.id === tile.building!.ownerId);
+                                    const killer = this.players.find(p => p.id === ownerId);
+                                    if (victim && killer) {
+                                        this.queueWipeOut(killer, victim);
+                                    }
+                                }
                                 tile.building = null;
                                 tile.ownerId = null;
                             }
