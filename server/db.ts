@@ -8,9 +8,9 @@ const { Pool } = pg;
 let pool: pg.Pool | null = null;
 export let isDbConnected = false;
 
-if (process.env.DATABASE_URL) {
+if (process.env.NETLIFY_DATABASE_URL) {
     pool = new Pool({
-        connectionString: process.env.DATABASE_URL,
+        connectionString: process.env.NETLIFY_DATABASE_URL,
         ssl: {
             rejectUnauthorized: false
         }
@@ -26,7 +26,7 @@ if (process.env.DATABASE_URL) {
         pool = null;
     });
 } else {
-    console.warn('DATABASE_URL not found. Running in in-memory mode.');
+    console.warn('NETLIFY_DATABASE_URL not found. Running in in-memory mode.');
 }
 
 async function initDB() {
