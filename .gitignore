@@ -12,6 +12,7 @@ dist
 scripts/generate_maps.ts
 dist-ssr
 *.local
+.env
 
 # Editor directories and files
 .vscode/*
