@@ -44,7 +44,16 @@ async function run() {
             );
         `);
 
-        // Snapshots table REMOVED
+        console.log("Creating 'snapshots' table...");
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS snapshots (
+                id SERIAL PRIMARY KEY,
+                game_id TEXT REFERENCES games(id),
+                tick INTEGER,
+                state JSONB,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+        `);
 
         console.log("Database Schema Initialized Successfully.");
     } catch (err: any) {

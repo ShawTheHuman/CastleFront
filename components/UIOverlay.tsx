@@ -2,6 +2,16 @@ import React, { useState } from 'react';
 import { BuildingType, Player, ResourceType, UnitType } from '../types';
 import { BUILDING_COSTS, UNIT_COSTS } from '../constants';
 
+const getResourceColor = (res: ResourceType): string => {
+  switch (res) {
+    case ResourceType.GOLD: return 'yellow';
+    case ResourceType.WOOD: return 'green';
+    case ResourceType.STONE: return 'zinc';
+    case ResourceType.FOOD: return 'red';
+    default: return 'gray';
+  }
+};
+
 const Resources = ({ player }: { player: Player }) => (
   <div className="flex items-center gap-6 bg-[#1c1917]/95 backdrop-blur-md px-6 py-3 rounded-xl text-amber-100 text-sm shadow-xl border-2 border-amber-900/40 pointer-events-auto transition-all hover:scale-105 hover:bg-[#292524]">
     <div className="flex flex-col items-center">
@@ -9,24 +19,21 @@ const Resources = ({ player }: { player: Player }) => (
       <span className="font-serif">{Math.floor(player.resources.GOLD)} <span className="text-stone-500 text-[10px]">(+{player.income.GOLD})</span></span>
     </div>
     <div className="w-px h-6 bg-amber-900/30"></div>
-    <div className="flex flex-col items-center">
-      <span className="text-green-600 font-bold font-display text-xs tracking-wider">WOOD</span>
-      <span className="font-serif">{Math.floor(player.resources.WOOD)} <span className="text-stone-500 text-[10px]">(+{player.income.WOOD})</span></span>
-    </div>
-    <div className="w-px h-6 bg-amber-900/30"></div>
-    <div className="flex flex-col items-center">
-      <span className="text-stone-400 font-bold font-display text-xs tracking-wider">STONE</span>
-      <span className="font-serif">{Math.floor(player.resources.STONE)} <span className="text-stone-500 text-[10px]">(+{player.income.STONE})</span></span>
-    </div>
-    <div className="w-px h-6 bg-amber-900/30"></div>
-    <div className="flex flex-col items-center">
-      <span className="text-orange-600 font-bold font-display text-xs tracking-wider">FOOD</span>
-      <span className="font-serif">{Math.floor(player.resources.FOOD)} <span className="text-stone-500 text-[10px]">(+{player.income.FOOD})</span></span>
-    </div>
-    <div className="w-px h-6 bg-amber-900/30"></div>
-    <div className="flex flex-col items-center">
-      <span className="text-blue-400 font-bold font-display text-xs tracking-wider">PEASANTS</span>
-      <span className="font-serif">{player.population} <span className="text-stone-500">/</span> {player.maxPopulation}</span>
+    <div className="flex gap-4 bg-[#1c1917]/95 backdrop-blur-md px-6 py-3 rounded-xl text-amber-100 text-sm shadow-xl border-2 border-amber-900/40 pointer-events-auto transition-all hover:scale-105 hover:bg-[#292524]">
+      {/* Resource Items */}
+      {Object.entries(player.resources).map(([res, amount]) => (
+        <div key={res} className="flex items-center gap-2 bg-stone-900/80 px-3 py-1.5 rounded border border-stone-700 shadow-sm transition-all hover:bg-stone-800">
+          <span className={`text-${getResourceColor(res as ResourceType)}-500 font-bold text-xs uppercase tracking-wider`}>{res}</span>
+          <span className="text-stone-200 font-mono font-bold">{Math.floor(amount)}</span>
+          <span className="text-xs text-stone-500 font-mono">+{Math.floor(player.income[res as ResourceType] || 0)}/t</span>
+        </div>
+      ))}
+
+      {/* Population Display */}
+      <div className="flex items-center gap-2 bg-indigo-900/30 px-3 py-1.5 rounded border border-indigo-700/50">
+        <span className="text-indigo-400 font-bold text-xs uppercase tracking-wider">POP</span>
+        <span className="text-indigo-100 font-mono font-bold">{Math.floor(player.population)} / {player.maxPopulation}</span>
+      </div>
     </div>
   </div>
 );
@@ -52,9 +59,10 @@ const BuildButton: React.FC<{
         relative group flex flex-col items-center justify-center p-2 rounded w-20 h-20 transition-all duration-200 border-2
         ${selectedBuilding === type
           ? 'bg-amber-900 border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.4)] transform scale-105 z-10'
-          : 'bg-[#292524] border-amber-900/30 hover:bg-[#44403c] hover:border-amber-600/50'}
+          : 'bg-[#292524] border-amber-900/30 hover:bg-[#44403c] hover:border-amber-600/50'
+        }
         ${!canAfford && 'opacity-40 cursor-not-allowed grayscale'}
-      `}
+`}
     >
       <div className="font-bold text-[10px] mb-1 font-display tracking-wider text-amber-100">{type}</div>
       <div className="text-[9px] flex flex-wrap justify-center gap-1 opacity-80 group-hover:opacity-100 font-serif">
@@ -90,9 +98,10 @@ const UnitButton: React.FC<{
               relative group flex flex-col items-center justify-center p-2 rounded w-16 h-16 transition-all duration-200 border-2
               ${selectedSpawnUnitType === type
           ? 'bg-red-900 border-red-500 shadow-[0_0_15px_rgba(220,38,38,0.4)] transform scale-105 z-10'
-          : 'bg-[#292524] border-amber-900/30 hover:bg-[#44403c] hover:border-amber-600/50'}
+          : 'bg-[#292524] border-amber-900/30 hover:bg-[#44403c] hover:border-amber-600/50'
+        }
               ${!canAfford && 'opacity-40 cursor-not-allowed grayscale'}
-          `}
+`}
     >
       <div className="font-bold text-[10px] mb-1 font-display tracking-wider text-amber-100">{type.slice(0, 4)}</div>
       <div className="text-[9px] text-yellow-600 font-serif font-bold">{cost.GOLD}G</div>

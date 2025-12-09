@@ -55,14 +55,32 @@ async function runTest() {
             });
 
             socket.on('game_start', (data: any) => {
-                console.log('Game Started!');
+                console.log('Game Started! Sending Snapshot...');
 
-                // Wait a bit then finish
-                setTimeout(() => {
-                    console.log('Test Complete (No snapshots verified).');
+                // 4. Send Snapshot
+                const mockSnapshot = { test: true, timestamp: Date.now() };
+                socket.emit('save_snapshot', {
+                    lobbyId: data.lobby.id,
+                    tick: 100,
+                    state: mockSnapshot
+                });
+
+                // Wait a bit for DB save then check
+                setTimeout(async () => {
+                    console.log('Checking DB for snapshot...');
+                    const res = await pool.query('SELECT * FROM snapshots WHERE game_id = $1', [data.lobby.id]);
+
+                    if (res.rows.length > 0) {
+                        console.log('✅ SUCCESS: Snapshot found in DB for game', data.lobby.id);
+                        const row = res.rows[0];
+                        console.log('Snapshot data:', row.state);
+                    } else {
+                        console.error('❌ FAILURE: No snapshot found in DB');
+                    }
+
                     socket.disconnect();
                     resolve();
-                }, 1000);
+                }, 2000);
             });
 
             // Timeout safety

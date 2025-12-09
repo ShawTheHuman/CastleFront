@@ -4,9 +4,11 @@ import { BUILDING_STATS, BUILDING_COSTS, UNIT_STATS, PLAYER_COLORS, MAP_HEIGHT, 
 export class GameEngine {
     tiles: Tile[][] = [];
     players: Player[] = [];
-    attacks: AttackWave[] = [];
+    logicAttacks: AttackWave[] = []; // Logic Attacks (for state)
+    attacks: { x: number, y: number, targetX: number, targetY: number, speed: number, color: string, damage: number, ownerId: string }[] = []; // NEW: Visual Attacks
     config: GameConfig;
     tickCount: number = 0;
+    timeAccumulator: number = 0; // NEW: For 60fps smoothing
     winnerId: string | null = null;
     totalLandTiles: number = 0;
     isGameActive: boolean = false;
@@ -30,8 +32,10 @@ export class GameEngine {
 
         this.setupPlayers(roster);
         this.spawnBotBases();
-        this.attacks = [];
+        this.logicAttacks = []; // Reset logic attacks
+        this.attacks = []; // Reset visual attacks
         this.tickCount = 0;
+        this.timeAccumulator = 0; // Reset accumulator
     }
 
     loadMap(mapData: any) {
@@ -556,7 +560,7 @@ export class GameEngine {
     }
 
     createAttack(playerId: string, sx: number, sy: number, tx: number, ty: number, power: number, color: string) {
-        this.attacks.push({
+        this.logicAttacks.push({
             id: Math.random().toString(36).substr(2, 9),
             ownerId: playerId,
             x: sx,
@@ -570,17 +574,24 @@ export class GameEngine {
     }
 
     updateAttacks() {
-        for (let i = this.attacks.length - 1; i >= 0; i--) {
-            const atk = this.attacks[i];
+        // This method now processes the LOGIC attacks (which were previously just 'attacks')
+        for (let i = this.logicAttacks.length - 1; i >= 0; i--) {
+            const atk = this.logicAttacks[i];
             const dx = atk.targetX - atk.x;
             const dy = atk.targetY - atk.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
 
-            if (dist < 0.2) {
+            // Logic attacks are processed instantly for simplicity, or after a fixed delay
+            // For now, let's assume they "arrive" after a fixed number of logic ticks
+            // Or, if we want to simulate travel, we need to update their position here too
+            // For now, let's make them instant for logic purposes, and visuals handle travel
+            // If we want logic to travel, we need to scale speed by 100ms (logic tick duration)
+            const move = Math.min(dist, atk.speed); // atk.speed is tiles per 100ms
+
+            if (dist < move) { // If it would reach or pass target
                 this.applyAttack(atk);
-                this.attacks.splice(i, 1);
+                this.logicAttacks.splice(i, 1);
             } else {
-                const move = Math.min(dist, atk.speed);
                 atk.x += (dx / dist) * move;
                 atk.y += (dy / dist) * move;
             }
@@ -858,6 +869,60 @@ export class GameEngine {
     }
 
     update(dt: number) {
+        // dt is in ms (approx 16ms for 60fps)
+
+        // --- 60 FPS MOVEMENT & ANIMATION ---
+
+        // Visual attacks removed per user request (no rendering in GameCanvas)
+        // The attacks[] array is no longer used
+
+        // Update Units Movement (Smooth)
+        this.players.forEach(p => {
+            p.units.forEach(unit => {
+                if (unit.targetX !== undefined && unit.targetY !== undefined) {
+                    const dx = unit.targetX - unit.x;
+                    const dy = unit.targetY - unit.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    // Logic from old updateUnits (now run every frame)
+                    // We need to scale speed by dt
+                    if (dist <= 0.2) {
+                        // Arrival handled in main Logic Tick or here?
+                        // Let's keep logic separation:
+                        // Movement integration is Frame-based (visual).
+                        // State changes (Idle, Finding Target) are Logic-based.
+                        // But if we stop moving here, we might jitter waiting for logic tick.
+                        // Let's just update Position here.
+                    } else {
+                        const currentTileX = Math.floor(unit.x);
+                        const currentTileY = Math.floor(unit.y);
+                        const currentTile = this.isValid(currentTileX, currentTileY) ? this.tiles[currentTileY][currentTileX] : null;
+
+                        let speedMod = 1.0;
+                        if (currentTile && currentTile.type === 'LAND') {
+                            speedMod = 1.0 - (currentTile.elevation / 25);
+                        }
+
+                        // Normalizing: unit.speed (e.g. 0.5) is "tiles per 100ms tick". 
+                        // So Tiles/ms = speed / 100.
+                        // Move = (speed / 100) * dt.
+                        const move = Math.min(dist, (unit.speed / 100) * dt * speedMod);
+                        unit.x += (dx / dist) * move;
+                        unit.y += (dy / dist) * move;
+                    }
+                }
+            });
+        });
+
+        // --- 10 FPS LOGIC TICK (Accumulator) ---
+        this.timeAccumulator += dt;
+        while (this.timeAccumulator >= 100) {
+            this.timeAccumulator -= 100;
+            this.updateLogicTick();
+        }
+    }
+
+    updateLogicTick() {
         this.tickCount++;
 
         // 1. Economy
@@ -866,32 +931,44 @@ export class GameEngine {
             this.updateAI();
         }
 
-        // 2. Units Movement & Combat (Military)
-        this.updateUnits();
+        // 2. Units (State Machine & Combat ONLY, movement is handled in update(dt))
+        this.updateUnitsState();
 
         // 3. New: Process Military Dispatch from Reserves
         this.processMilitaryDispatch();
 
-        // 4. Attacks (Population Expansion)
+        // 4. Attacks (Population Expansion - this is 'Game Logic' attacks, not visual projectiles)
         this.updateAttacks();
 
         // 5. Building Construction
         this.updateBuildings();
 
         // 6. Encirclement check (Auto-claim)
-        // Optimization: Run less frequently (every 5 seconds)
+        // Optimization: Run less frequently (every 5 seconds -> 50 ticks)
         if (this.tickCount % 50 === 0) {
             this.checkEncirclement();
         }
 
         // 7. Territory Pressure (Passive regen only)
-        // Optimization: Run less frequently (every 2 seconds)
+        // Optimization: Run less frequently (every 2 seconds -> 20 ticks)
         if (this.tickCount % 20 === 0) {
             this.updateTerritory();
         }
 
         // 8. WipeOut Queue (Smoothing)
         this.processWipeOutQueue();
+
+        // 9. Population Growth (10 pop/sec/tile)
+        // This runs EVERY LOGIC TICK (100ms).
+        // Target: 10 pop per second = 1 pop per 100ms tick.
+        this.players.forEach(p => {
+            // Only if they have a base/land
+            if (p.landArea > 0) {
+                const growth = p.ownedTiles.length * 1; // CORRECTED: 1 per tick * 10 ticks/sec = 10/sec
+                p.population += growth;
+                if (p.population > p.maxPopulation) p.population = p.maxPopulation;
+            }
+        });
     }
 
     updateEconomy() {
@@ -969,6 +1046,9 @@ export class GameEngine {
             p.maxPopulation = Math.max(100, stats.maxPop); // Min 100
 
             // Apply Pop Growth (unconditional, no food cost as per new rules logic)
+            // Apply Pop Growth (unconditional, no food cost as per new rules logic)
+            // MOVED TO MAIN TICK LOOP for faster speed
+            /*
             if (p.population < p.maxPopulation) {
                 // Growth based on food or just constant trickle?
                 // Let's say 1% growth per tick + base
@@ -978,6 +1058,12 @@ export class GameEngine {
             } else if (p.population > p.maxPopulation) {
                 // Decay if over pop
                 p.population -= 1;
+            }
+            */
+
+            // Decay if over pop (still keep this safety check, although raw loop handles cap too)
+            if (p.population > p.maxPopulation) {
+                p.population = p.maxPopulation;
             }
 
             // WIN CONDITION: > 80% of total land
@@ -1054,7 +1140,7 @@ export class GameEngine {
         }
     }
 
-    updateUnits() {
+    updateUnitsState() {
         this.players.forEach(p => {
             for (let i = p.units.length - 1; i >= 0; i--) {
                 const unit = p.units[i];
@@ -1064,13 +1150,7 @@ export class GameEngine {
                     continue;
                 }
 
-                // SOLDIERs are deprecated
-                if (unit.type === UnitType.SOLDIER) {
-                    p.units.splice(i, 1);
-                    continue;
-                }
-
-                // 1. MOVEMENT
+                // 1. ARRIVAL CHECK (Movement is handled in update(dt))
                 if (unit.targetX !== undefined && unit.targetY !== undefined) {
                     const dx = unit.targetX - unit.x;
                     const dy = unit.targetY - unit.y;
@@ -1085,24 +1165,9 @@ export class GameEngine {
                             unit.targetY = undefined;
                         } else {
                             // Wander/Attack Move complete
-                            // Stay here for a bit or find new target
                             unit.targetX = undefined;
                             unit.targetY = undefined;
                         }
-                    } else {
-                        // Move logic
-                        const currentTileX = Math.floor(unit.x);
-                        const currentTileY = Math.floor(unit.y);
-                        const currentTile = this.isValid(currentTileX, currentTileY) ? this.tiles[currentTileY][currentTileX] : null;
-
-                        let speedMod = 1.0;
-                        if (currentTile && currentTile.type === 'LAND') {
-                            speedMod = 1.0 - (currentTile.elevation / 25);
-                        }
-
-                        const move = Math.min(dist, unit.speed * speedMod);
-                        unit.x += (dx / dist) * move;
-                        unit.y += (dy / dist) * move;
                     }
                 }
 
@@ -1121,7 +1186,7 @@ export class GameEngine {
                     // If still no target (no enemies nearby), Wander
                     if (unit.targetX === undefined) {
                         unit.idleTicks++;
-                        if (unit.idleTicks > 30) { // 3 seconds approx
+                        if (unit.idleTicks > 30) { // 3 seconds approx (at 10 ticks/sec)
                             this.wander(unit);
                             unit.idleTicks = 0;
                         }
@@ -1212,6 +1277,7 @@ export class GameEngine {
                         const tile = this.tiles[y][x];
                         if (tile.building && tile.building.ownerId !== ownerId) {
                             tile.building.hp -= unit.attack;
+
                             if (tile.building.hp <= 0) {
                                 // Check for King Slayer
                                 if (tile.building.type === BuildingType.KINGDOM) {
@@ -1238,6 +1304,7 @@ export class GameEngine {
                     const d = Math.sqrt((unit.x - enemyUnit.x) ** 2 + (unit.y - enemyUnit.y) ** 2);
                     if (d <= range) {
                         enemyUnit.hp -= unit.attack;
+
                         return true; // Attacked
                     }
                 }

@@ -412,7 +412,12 @@ const GameCanvasComponent: React.FC<GameCanvasProps> = ({
       }
     }
 
-    // PASS 3: UNITS (Separate Loop? No, better loop over players for sparsity)
+    // PASS 3: UNITS & ATTACKS
+
+    // 3A. ATTACKS (Visual Projectiles) - REMOVED per user request
+    // if (engine.attacks) { ... }
+
+    // 3B. UNITS
     // Units are sparse compared to tiles, so iteration over player units is O(U) vs O(Map)
     if (engine.players) {
       engine.players.forEach(p => {
@@ -422,6 +427,8 @@ const GameCanvasComponent: React.FC<GameCanvasProps> = ({
 
           const screenX = u.x * TILE_SIZE + TILE_SIZE / 2;
           const screenY = u.y * TILE_SIZE + TILE_SIZE / 2;
+
+          // Draw Unit Tail/Trail - REMOVED per user request
 
           ctx.beginPath();
           ctx.arc(screenX, screenY, 2.5, 0, Math.PI * 2);

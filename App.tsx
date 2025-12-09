@@ -80,9 +80,10 @@ const AppContent = ({ engine }: { engine: GameEngine }) => {
 
         if (newSocket) {
             newSocket.on('connect', () => {
-
+                // console.log('Connected to Game Server');
                 // Auto-register if we have a name (Reconnection Logic)
                 if (playerNameRef.current) {
+                    // console.log('Auto-registering on reconnect:', playerNameRef.current);
                     newSocket.emit('register', playerNameRef.current);
                 }
             });
@@ -96,15 +97,18 @@ const AppContent = ({ engine }: { engine: GameEngine }) => {
             });
 
             newSocket.on('registered', (player: PlayerProfile) => {
+                // console.log('Registered with Server. ID:', player.id);
                 setPlayerId(player.id);
             });
 
             newSocket.on('game_start', (data: { lobby: Lobby, mapData: any }) => {
+                // console.log('CLIENT RECEIVED game_start!', data);
                 // Use Ref to check if this is our lobby
                 if (data.lobby.id === activeLobbyIdRef.current) {
+                    // console.log('Lobby ID Matches! Starting game...');
                     startGameFromLobby(data.lobby, data.mapData);
                 } else {
-
+                    console.warn('Lobby ID Mismatch in game_start:', data.lobby.id, 'vs', activeLobbyIdRef.current);
                 }
             });
         }
@@ -170,6 +174,7 @@ const AppContent = ({ engine }: { engine: GameEngine }) => {
         if (!engine) return;
 
         // Re-init engine with players
+        // console.log("Starting match with map:", mapData?.name || "Procedural");
 
         // Add Bots
         const roster = [...lobby.players];
@@ -202,21 +207,64 @@ const AppContent = ({ engine }: { engine: GameEngine }) => {
 
     // ... Gameplay Loop with SNAPSHOT ...
     // 2. GAME PLAYING LOOP (LOGIC ONLY)
+    // 2. GAME PLAYING LOOP (LOGIC ONLY)
     useEffect(() => {
         if (view === ViewState.GAME_PLAYING) {
-            const interval = setInterval(() => {
-                engine.update(100);
-                // setGameStateToken(p => p + 1); // REMOVED: No longer forcing App re-render
+            let lastTime = performance.now();
+            let animationId: number;
 
-                // Auto-Save Snapshot (REMOVED)
+            const loop = (currentTime: number) => {
+                const dt = currentTime - lastTime;
+                lastTime = currentTime;
 
+                // Capped dt to prevent spiral of death if tab is backgrounded
+                // Max 100ms per frame
+                engine.update(Math.min(dt, 100));
+
+                // Auto-Save Snapshot (Check every tick, but save on interval check inside logic?)
+                // Or keep logic separate. 
+                // Engine.tickCount only updates inside updateLogicTick (every 100ms acc).
+                // So checking tickCount % X is still valid logic-wise.
+                if (engine.tickCount % 100 === 0 && activeLobbyId && engine.timeAccumulator < 10) { // Slight hack to avoid multi-emit in same logic tick frame
+                    // Actully, tickCount increments only once per 100ms logic tick.
+                    // But rendering frames run 6 times per logic tick.
+                    // To prevent saving 6 times, we need a flag or just rely on tick changing.
+                    // Better: Engine sets a flag "justTicked"? 
+                    // Or we just accept that we might emit a few times or throttle this.
+                    // Simply throttling by time is safer here.
+                }
 
                 if (engine.isGameOver) {
                     setMatchResult(engine.getMatchLog());
                     setView(ViewState.RESULTS);
+                    return;
                 }
-            }, 100);
-            return () => clearInterval(interval);
+
+                animationId = requestAnimationFrame(loop);
+            };
+
+            animationId = requestAnimationFrame(loop);
+
+            // Separate Interval for Networking / Auto-Save if preferred, 
+            // but sticking to loop is fine if we are careful.
+            // Let's restore the Auto-Save as a simple interval to avoid cluttering the RAF loop.
+            const saveInterval = setInterval(() => {
+                if (activeLobbyId) {
+                    const snapshot = {
+                        players: engine.players.map(p => ({ id: p.id, pop: p.population, mil: p.militaryPopulation })),
+                    };
+                    socketRef.current?.emit('save_snapshot', {
+                        lobbyId: activeLobbyId,
+                        tick: engine.tickCount,
+                        state: snapshot
+                    });
+                }
+            }, 10000); // Save every 10s
+
+            return () => {
+                cancelAnimationFrame(animationId);
+                clearInterval(saveInterval);
+            };
         }
     }, [view, engine, activeLobbyId]);
 
@@ -438,6 +486,7 @@ const AppContent = ({ engine }: { engine: GameEngine }) => {
                         <div>
                             <h2 className="text-4xl font-black text-amber-100 font-display mb-1 drop-shadow-lg">WAR ROOM</h2>
                             <p className="text-amber-700 text-sm tracking-[0.2em] font-serif uppercase">Province: {activeLobbyId} // The Highlands</p>
+                            <p className="text-xs text-stone-600">DEBUG: Host={currentLobby.hostId} | Me={PLAYER_ID} | Match={currentLobby.hostId === PLAYER_ID ? 'YES' : 'NO'}</p>
                         </div>
                         <div className="text-right">
                             <div className="text-[10px] text-stone-500 uppercase font-bold mb-1">State</div>
@@ -472,6 +521,7 @@ const AppContent = ({ engine }: { engine: GameEngine }) => {
                             <div className="w-full space-y-3">
                                 <button
                                     onClick={() => {
+                                        // console.log('CLICKED SOUND HORNS. Socket:', socketRef.current?.id);
                                         socketRef.current?.emit('start_game');
                                     }}
                                     className="w-full py-4 lord-button text-amber-100 font-bold rounded shadow-lg font-display text-xl tracking-widest uppercase border border-amber-500/30"
