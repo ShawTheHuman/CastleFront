@@ -98,10 +98,13 @@ const UnitButton: React.FC<{
       <div className="text-[9px] text-yellow-600 font-serif font-bold">{cost.GOLD}G</div>
     </button>
   )
-}
+};
+
+import { GameEngine } from '../game/GameEngine';
 
 interface UIOverlayProps {
-  player: Player | undefined;
+  engine: GameEngine;
+  playerId: string;
   onBuildSelect: (type: BuildingType) => void;
   onUnitSpawn: (type: UnitType) => void;
   selectedBuilding: BuildingType | null;
@@ -112,7 +115,8 @@ interface UIOverlayProps {
 }
 
 export const UIOverlay: React.FC<UIOverlayProps> = ({
-  player,
+  engine,
+  playerId,
   onBuildSelect,
   onUnitSpawn,
   selectedBuilding,
@@ -121,6 +125,17 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   setAttackPercentage,
   onExit
 }) => {
+  const [tick, setTick] = useState(0);
+
+  // High frequency update loop specifically for UI (Resources etc)
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 100);
+    return () => clearInterval(interval);
+  }, []);
+
+  const player = engine.getPlayer(playerId);
   if (!player) return null;
 
   return (
@@ -142,47 +157,46 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         </button>
       </div>
 
-      {/* Right Side: Attack Slider (Power Gauge Style) */}
-      <div className="absolute right-6 top-1/2 transform -translate-y-1/2 pointer-events-auto flex flex-col items-center">
-        <div className="bg-[#1c1917]/90 backdrop-blur-md p-3 rounded-lg border-2 border-amber-900/50 shadow-2xl flex flex-col items-center gap-2">
-          <div className="text-amber-700 font-bold text-[10px] uppercase writing-vertical-rl transform rotate-180 tracking-widest h-20 text-center font-display">Aggression</div>
 
-          <div className="h-48 w-4 bg-[#0c0a09] rounded-full relative overflow-hidden border border-amber-900/30">
-            <div
-              className="absolute bottom-0 w-full bg-gradient-to-t from-red-900 via-amber-600 to-yellow-400 transition-all duration-200"
-              style={{ height: `${attackPercentage}%` }}
-            ></div>
-            {/* Texture overlay */}
-            <div className="absolute inset-0 bg-[linear-gradient(transparent_2px,rgba(0,0,0,0.5)_2px)] bg-[size:100%_4px] opacity-50"></div>
-
-            <input
-              type="range"
-              min="1"
-              max="100"
-              value={attackPercentage}
-              onChange={(e) => setAttackPercentage(parseInt(e.target.value))}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
-            />
-          </div>
-
-          <div className="text-amber-500 font-bold text-lg font-display">
-            {attackPercentage}<span className="text-xs">%</span>
-          </div>
-        </div>
-      </div>
 
       {/* Bottom Bar (Controls) */}
       <div className="flex flex-col items-center pointer-events-auto">
         {/* Units Panel */}
-        <div className="flex gap-2 mb-3 bg-[#1c1917]/90 backdrop-blur-md p-2 rounded-lg border border-amber-900/40 shadow-lg transform translate-y-2 hover:translate-y-0 transition-transform">
-          <div className="flex flex-col justify-center px-2 border-r border-amber-900/30">
-            <span className="text-[10px] text-amber-600 uppercase font-bold tracking-wider font-display">Raise</span>
-            <span className="text-[10px] text-amber-600 uppercase font-bold tracking-wider font-display">Army</span>
+        <div className="flex gap-2 mb-3 items-stretch">
+
+          {/* Attack Slider (Horizontal) */}
+          <div className="bg-[#1c1917]/90 backdrop-blur-md p-2 rounded-lg border border-amber-900/40 shadow-lg flex flex-col justify-center gap-1 min-w-[140px] px-3 transform translate-y-2 hover:translate-y-0 transition-transform">
+            <div className="flex justify-between items-center w-full">
+              <span className="text-[10px] text-amber-700 font-bold uppercase tracking-widest font-display">Aggression</span>
+              <span className="text-amber-500 font-bold text-xs font-display">{attackPercentage}%</span>
+            </div>
+
+            <div className="h-3 w-full bg-[#0c0a09] rounded-full relative overflow-hidden border border-amber-900/30">
+              <div
+                className="absolute left-0 h-full bg-gradient-to-r from-red-900 via-amber-600 to-yellow-400 transition-all duration-200"
+                style={{ width: `${attackPercentage}%` }}
+              ></div>
+              <input
+                type="range"
+                min="1"
+                max="100"
+                value={attackPercentage}
+                onChange={(e) => setAttackPercentage(parseInt(e.target.value))}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-50"
+              />
+            </div>
           </div>
-          {(Object.keys(UnitType) as UnitType[]).map(u => (
-            <UnitButton key={u} type={u} player={player} onUnitSpawn={onUnitSpawn} selectedSpawnUnitType={selectedSpawnUnitType} />
-          ))}
+
+          {/* Units Panel */}
+          <div className="flex gap-2 bg-[#1c1917]/90 backdrop-blur-md p-2 rounded-lg border border-amber-900/40 shadow-lg transform translate-y-2 hover:translate-y-0 transition-transform">
+            <div className="flex flex-col justify-center px-2 border-r border-amber-900/30">
+              <span className="text-[10px] text-amber-600 uppercase font-bold tracking-wider font-display">Raise</span>
+              <span className="text-[10px] text-amber-600 uppercase font-bold tracking-wider font-display">Army</span>
+            </div>
+            {(Object.keys(UnitType) as UnitType[]).map(u => (
+              <UnitButton key={u} type={u} player={player} onUnitSpawn={onUnitSpawn} selectedSpawnUnitType={selectedSpawnUnitType} />
+            ))}
+          </div>
         </div>
 
         {/* Build Panel */}

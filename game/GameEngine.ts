@@ -16,15 +16,88 @@ export class GameEngine {
         this.generateMap(); // Initialize map immediately to prevent render crashes
     }
 
-    // Updated Init to accept Lobby Roster
-    init(roster: PlayerProfile[]) {
+    // Updated Init to accept Lobby Roster and Map Data
+    init(roster: PlayerProfile[], mapData?: any) {
         this.winnerId = null;
         this.isGameActive = false; // Reset game state
-        this.generateMap();
+
+        if (mapData && mapData.tiles && mapData.tiles.length > 0) {
+            this.loadMap(mapData);
+        } else {
+            this.generateMap();
+        }
+
         this.setupPlayers(roster);
         this.spawnBotBases();
         this.attacks = [];
         this.tickCount = 0;
+    }
+
+    loadMap(mapData: any) {
+        this.tiles = [];
+        this.totalLandTiles = 0;
+        const w = mapData.width;
+        const h = mapData.height;
+        this.config.mapWidth = w;
+        this.config.mapHeight = h;
+
+        // Initialize empty grid
+        for (let y = 0; y < h; y++) {
+            this.tiles[y] = [];
+            for (let x = 0; x < w; x++) {
+                this.tiles[y][x] = null as any; // Placeholder
+            }
+        }
+
+        // Populate from map data
+        // Support legacy object array OR new flat optimized array
+        if (typeof mapData.tiles[0] === 'number') {
+            // OPTIMIZED: [type, elev, type, elev...]
+            // Type: 1 = LAND, 0 = WATER
+            let idx = 0;
+            for (let i = 0; i < mapData.tiles.length; i += 2) {
+                const typeCode = mapData.tiles[i];
+                const elevation = mapData.tiles[i + 1];
+
+                const x = idx % w;
+                const y = Math.floor(idx / w);
+                const type = typeCode === 1 ? 'LAND' : 'WATER';
+
+                if (type === 'LAND') this.totalLandTiles++;
+
+                this.tiles[y][x] = {
+                    x, y,
+                    type,
+                    elevation,
+                    ownerId: null,
+                    building: null,
+                    defense: type === 'LAND' ? 1 : 0
+                };
+                idx++;
+            }
+        } else {
+            // LEGACY: [{x,y,type,elevation}...]
+            for (const t of mapData.tiles) {
+                if (t.type === 'LAND') this.totalLandTiles++;
+
+                this.tiles[t.y][t.x] = {
+                    x: t.x,
+                    y: t.y,
+                    type: t.type,
+                    elevation: t.elevation,
+                    ownerId: null,
+                    building: null,
+                    defense: t.type === 'LAND' ? 1 : 0
+                };
+                this.tiles[t.y][t.x] = tile;
+                if (tile.ownerId) {
+                    const owner = this.players.find(p => p.id === tile.ownerId);
+                    if (owner) {
+                        owner.ownedTiles.push(tile);
+                    }
+                }
+            }
+        }
     }
 
     startMatch() {
@@ -134,7 +207,7 @@ export class GameEngine {
                     elevation: finalElevation,
                     ownerId: null,
                     building: null,
-                    defense: type === 'LAND' ? 1 : 0 // NEUTRAL LAND IS WEAK (1 HP)
+                    defense: type === 'LAND' ? 1 : 0 // NEUTRAL LAND 1 HP
                 });
             }
             this.tiles.push(row);
@@ -167,7 +240,8 @@ export class GameEngine {
             attackTarget: null,
             units: [],
             center: { x: 0, y: 0 },
-            landArea: 0
+            landArea: 0,
+            ownedTiles: []
         };
     }
 
@@ -228,7 +302,8 @@ export class GameEngine {
                             if (this.isValid(nx, ny)) {
                                 const t = this.tiles[ny][nx];
                                 t.ownerId = p.id;
-                                t.defense = 200;
+                                t.defense = 1 + Math.floor(p.population / 2000);
+                                p.ownedTiles.push(t);
                             }
                         }
                     }
@@ -256,7 +331,8 @@ export class GameEngine {
                     if (this.isValid(nx, ny)) {
                         const t = this.tiles[ny][nx];
                         t.ownerId = playerId;
-                        t.defense = 200;
+                        t.defense = 1 + Math.floor((player?.population || 0) / 2000);
+                        player?.ownedTiles.push(t);
                     }
                 }
             }
@@ -336,7 +412,12 @@ export class GameEngine {
                         const tile = this.tiles[y][x];
                         if (tile.type === 'LAND' && !tile.ownerId) {
                             tile.ownerId = playerId;
-                            tile.defense = 50 + tile.elevation * 5; // Higher defense on higher ground for base
+                            const player = this.players.find(p => p.id === playerId);
+                            if (player) {
+                                tile.defense = 1 + Math.floor(player.population / 2000);
+                                player.ownedTiles.push(tile);
+                            }
+
                             count++;
                         }
                     }
@@ -398,35 +479,30 @@ export class GameEngine {
             const candidates: { source: Tile, targets: Tile[] }[] = [];
             const neighbors = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
 
-            for (let y = 0; y < this.config.mapHeight; y++) {
-                for (let x = 0; x < this.config.mapWidth; x++) {
-                    const tile = this.tiles[y][x];
-                    if (tile.ownerId === player.id) {
-                        const validNeighbors: Tile[] = [];
-                        neighbors.forEach(n => {
-                            const nx = x + n.x;
-                            const ny = y + n.y;
-                            if (this.isValid(nx, ny)) {
-                                const neighbor = this.tiles[ny][nx];
-                                let isValidTarget = false;
-                                if (targetOwner === null) {
-                                    isValidTarget = neighbor.ownerId === null && neighbor.type === 'LAND';
-                                } else {
-                                    isValidTarget = neighbor.ownerId === targetOwner;
-                                }
+            player.ownedTiles.forEach(tile => {
+                const validNeighbors: Tile[] = [];
+                neighbors.forEach(n => {
+                    const nx = tile.x + n.x;
+                    const ny = tile.y + n.y;
+                    if (this.isValid(nx, ny)) {
+                        const neighbor = this.tiles[ny][nx];
+                        let isValidTarget = false;
+                        if (targetOwner === null) {
+                            isValidTarget = neighbor.ownerId === null && neighbor.type === 'LAND';
+                        } else {
+                            isValidTarget = neighbor.ownerId === targetOwner;
+                        }
 
-                                if (isValidTarget) {
-                                    validNeighbors.push(neighbor);
-                                }
-                            }
-                        });
-
-                        if (validNeighbors.length > 0) {
-                            candidates.push({ source: tile, targets: validNeighbors });
+                        if (isValidTarget) {
+                            validNeighbors.push(neighbor);
                         }
                     }
+                });
+
+                if (validNeighbors.length > 0) {
+                    candidates.push({ source: tile, targets: validNeighbors });
                 }
-            }
+            });
 
             if (candidates.length === 0) {
                 return;
@@ -497,86 +573,102 @@ export class GameEngine {
         }
     }
 
-    applyAttack(atk: AttackWave) {
-        if (!this.isValid(atk.targetX, atk.targetY)) return;
-        const tile = this.tiles[atk.targetY][atk.targetX];
+    applyAttack(initialAtk: AttackWave) {
+        // Queue for BFS overflow
+        // item: { x, y, power, ownerId }
+        const queue: { x: number, y: number, power: number, ownerId: string }[] = [{
+            x: initialAtk.targetX,
+            y: initialAtk.targetY,
+            power: initialAtk.power,
+            ownerId: initialAtk.ownerId
+        }];
 
-        // --- WIPE-OUT MECHANIC CHECK ---
-        // If attacking an enemy tile
-        if (tile.ownerId && tile.ownerId !== atk.ownerId) {
-            const attacker = this.players.find(p => p.id === atk.ownerId);
-            const defender = this.players.find(p => p.id === tile.ownerId);
+        let tilesProcessed = 0;
+        const MAX_CHAIN = 20; // Hard limit to prevent lag spikes
 
-            if (attacker && defender) {
-                // Check if attack power is overwhelmingly larger than defender's total population
-                const wipeOutThreshold = defender.population * 3;
+        while (queue.length > 0 && tilesProcessed < MAX_CHAIN) {
+            const current = queue.shift()!;
 
-                // Also ensure attacker has a significant force (e.g. > 100) to prevent cheap wipes early game
-                if (atk.power > 100 && atk.power > wipeOutThreshold) {
-                    this.wipeOutPlayer(attacker, defender);
-                    // The attack itself is consumed by triggering the event
-                    return;
+            if (!this.isValid(current.x, current.y)) continue;
+            const tile = this.tiles[current.y][current.x];
+
+            tilesProcessed++;
+
+            // 1. Calculate Damage (10 Pop = 1 Dmg)
+            const damage = Math.max(0.1, current.power / 10);
+
+            // 2. Building Hit?
+            if (tile.building) {
+                tile.building.hp -= damage;
+                if (tile.building.hp <= 0) {
+                    tile.building = null;
                 }
-            }
-        }
-        // -------------------------------
-
-        let captured = false;
-        let remainingPower = 0;
-
-        if (tile.ownerId === atk.ownerId) {
-            tile.defense += atk.power;
-            remainingPower = 0;
-        } else {
-            let resistance = 1.0;
-            if (tile.ownerId) {
-                const defender = this.players.find(p => p.id === tile.ownerId);
-                if (defender) {
-                    resistance = 1.0 + Math.sqrt(defender.population);
-                }
+                continue; // Stop propagation if hitting a building (it absorbs impact)
             }
 
-            const effectiveDamage = atk.power / resistance;
+            // 3. Tile Hit
+            if (tile.ownerId !== current.ownerId) {
+                const initialDefense = tile.defense;
+                tile.defense -= damage;
 
-            if (effectiveDamage >= tile.defense) {
-                captured = true;
+                // 4. Check Conquest
+                if (tile.defense <= 0) {
+                    // Won!
+                    if (tile.ownerId) {
+                        const oldP = this.players.find(p => p.id === tile.ownerId);
+                        if (oldP) oldP.ownedTiles = oldP.ownedTiles.filter(t => t !== tile);
+                    }
 
-                const powerUsed = tile.defense * resistance;
-                remainingPower = atk.power - powerUsed;
+                    tile.ownerId = current.ownerId;
+                    const newOwner = this.players.find(p => p.id === current.ownerId);
+                    if (newOwner) newOwner.ownedTiles.push(tile);
 
-                tile.defense = 10;
-                tile.ownerId = atk.ownerId;
+                    const owner = this.players.find(p => p.id === current.ownerId);
+                    const pop = owner ? owner.population : 0;
+                    tile.defense = 1 + Math.floor(pop / 2000);
 
-                if (tile.building) {
-                    tile.building.ownerId = atk.ownerId;
-                    tile.building.hp = tile.building.maxHp * 0.2;
+                    // 5. Overflow
+                    const costOfConquest = initialDefense * 10;
+                    const remainingPower = current.power - costOfConquest;
+
+                    if (remainingPower > 10) {
+                        const neighbors = [
+                            { x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }
+                        ];
+
+                        const validNeighbors = [];
+                        for (const n of neighbors) {
+                            const nx = current.x + n.x;
+                            const ny = current.y + n.y;
+                            if (this.isValid(nx, ny)) {
+                                const nt = this.tiles[ny][nx];
+                                // Only expand into enemy/neutral
+                                if (nt.ownerId !== current.ownerId) {
+                                    validNeighbors.push({ x: nx, y: ny });
+                                }
+                            }
+                        }
+
+                        if (validNeighbors.length > 0) {
+                            const powerPerTarget = remainingPower / validNeighbors.length;
+                            validNeighbors.forEach(vp => {
+                                queue.push({
+                                    x: vp.x,
+                                    y: vp.y,
+                                    power: powerPerTarget,
+                                    ownerId: current.ownerId
+                                });
+                            });
+                        }
+                    }
                 }
             } else {
-                tile.defense -= effectiveDamage;
-                remainingPower = 0;
-            }
-        }
-
-        if (captured && remainingPower > 1) {
-            const neighbors = [
-                { x: atk.targetX, y: atk.targetY - 1 },
-                { x: atk.targetX, y: atk.targetY + 1 },
-                { x: atk.targetX - 1, y: atk.targetY },
-                { x: atk.targetX + 1, y: atk.targetY }
-            ];
-
-            const validTargets = neighbors.filter(n => {
-                if (!this.isValid(n.x, n.y)) return false;
-                const t = this.tiles[n.y][n.x];
-                return t.type === 'LAND' && t.ownerId !== atk.ownerId;
-            });
-
-            if (validTargets.length > 0) {
-                const powerPerWave = remainingPower / validTargets.length;
-                if (powerPerWave >= 1) {
-                    validTargets.forEach(target => {
-                        this.createAttack(atk.ownerId, atk.targetX, atk.targetY, target.x, target.y, powerPerWave, atk.color);
-                    });
+                // Heal Own
+                const owner = this.players.find(p => p.id === current.ownerId);
+                const maxDef = 1 + Math.floor((owner?.population || 0) / 2000);
+                if (tile.defense < maxDef) {
+                    tile.defense += damage;
+                    if (tile.defense > maxDef) tile.defense = maxDef;
                 }
             }
         }
@@ -626,6 +718,10 @@ export class GameEngine {
                 // Instant convert
                 tile.ownerId = attacker.id;
                 tile.defense = 50; // Moderate defense
+
+                // Cache Update
+                defender.ownedTiles = defender.ownedTiles.filter(t => t !== tile);
+                attacker.ownedTiles.push(tile);
                 if (tile.building) {
                     tile.building.ownerId = attacker.id;
                 }
@@ -716,9 +812,19 @@ export class GameEngine {
     }
 
     captureComponent(tiles: Tile[], newOwnerId: string) {
+        const newOwner = this.players.find(p => p.id === newOwnerId);
+
         tiles.forEach(t => {
+            if (t.ownerId) {
+                const oldP = this.players.find(p => p.id === t.ownerId);
+                // Slow filter, but captures are rare events
+                if (oldP) oldP.ownedTiles = oldP.ownedTiles.filter(ot => ot !== t);
+            }
+
             t.ownerId = newOwnerId;
             t.defense = 10; // Reset defense
+            if (newOwner) newOwner.ownedTiles.push(t);
+
             if (t.building) {
                 t.building.ownerId = newOwnerId;
                 t.building.hp = t.building.maxHp * 0.5; // Damage it
@@ -752,12 +858,14 @@ export class GameEngine {
         this.updateBuildings();
 
         // 6. Encirclement check (Auto-claim)
-        if (this.tickCount % 10 === 0) {
+        // Optimization: Run less frequently (every 5 seconds)
+        if (this.tickCount % 50 === 0) {
             this.checkEncirclement();
         }
 
         // 7. Territory Pressure (Passive regen only)
-        if (this.tickCount % 5 === 0) {
+        // Optimization: Run less frequently (every 2 seconds)
+        if (this.tickCount % 20 === 0) {
             this.updateTerritory();
         }
     }
@@ -1107,9 +1215,16 @@ export class GameEngine {
             for (let x = 0; x < this.config.mapWidth; x++) {
                 const tile = this.tiles[y][x];
                 if (tile.ownerId) {
-                    const maxDefense = 100 + tile.elevation * 5;
-                    if (tile.defense < maxDefense) {
-                        tile.defense += 0.5; // Slow regen
+                    const owner = this.players.find(p => p.id === tile.ownerId);
+                    if (owner) {
+                        const maxDefense = 1 + Math.floor(owner.population / 2000);
+                        if (tile.defense < maxDefense) {
+                            tile.defense += 0.5; // Regen
+                            if (tile.defense > maxDefense) tile.defense = maxDefense;
+                        } else if (tile.defense > maxDefense) {
+                            // Decay down if pop drops?
+                            tile.defense = maxDefense;
+                        }
                     }
                 }
             }
@@ -1182,17 +1297,48 @@ export class GameEngine {
                 const src = borderCandidates[Math.floor(Math.random() * borderCandidates.length)];
                 const neighbors = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
 
-                const validTargets = neighbors.map(n => {
+                let possibleTargets = neighbors.map(n => {
                     const nx = src.x + n.x;
                     const ny = src.y + n.y;
                     if (this.isValid(nx, ny)) return this.tiles[ny][nx];
                     return null;
-                }).filter(t => t && t.type === 'LAND' && t.ownerId !== ai.id);
+                }).filter(t => {
+                    if (!t || t.type !== 'LAND') return false;
+                    if (t.ownerId === ai.id) return false;
 
-                if (validTargets.length > 0) {
-                    const target = validTargets[Math.floor(Math.random() * validTargets.length)];
-                    this.distributeExpansion(ai.id, target!.x, target!.y, percent);
-                    break; // Success
+                    // CRITICAL: NEVER ATTACK HUMANS
+                    if (t.ownerId) {
+                        const owner = this.players.find(p => p.id === t.ownerId);
+                        if (owner && !owner.isAI) return false;
+                    }
+                    return true;
+                });
+
+                if (possibleTargets.length > 0) {
+
+                    // --- CAMP BEHAVIOR: SCAVENGER ---
+                    if (ai.aiType === AIType.CAMP) {
+                        const neutrals = possibleTargets.filter(t => t?.ownerId === null);
+
+                        if (neutrals.length > 0) {
+                            // Take free land
+                            possibleTargets = neutrals;
+                        } else {
+                            // Only attack other bots if no neutral
+                            // Filter is already applied above to exclude humans, so these are all valid AI targets
+                        }
+                    }
+
+                    // --- KINGDOM BEHAVIOR: STANDARD ---
+                    // (Matches user request: Attack neutrals + bots. Humans excluded above.)
+
+                    // Execute
+                    const validFinalTargets = possibleTargets.filter(t => t !== null && t !== undefined) as Tile[];
+                    if (validFinalTargets.length > 0) {
+                        const target = validFinalTargets[Math.floor(Math.random() * validFinalTargets.length)];
+                        this.distributeExpansion(ai.id, target.x, target.y, percent);
+                        break;
+                    }
                 }
             }
         }
@@ -1275,8 +1421,26 @@ export class GameEngine {
             isUnderConstruction: !free,
             constructionProgress: free ? 100 : 0
         };
-        tile.ownerId = playerId;
-        tile.defense = 100;
+        // Initialize defense based on pop
+        tile.defense = 1 + Math.floor(player.population / 2000);
+
+        // Cache Update: Ensure tile is in ownedTiles
+        if (tile.ownerId !== playerId) {
+            if (tile.ownerId) {
+                // Remove from old owner
+                const oldOwner = this.players.find(p => p.id === tile.ownerId);
+                if (oldOwner) {
+                    oldOwner.ownedTiles = oldOwner.ownedTiles.filter(t => t !== tile);
+                }
+            }
+            player.ownedTiles.push(tile);
+            tile.ownerId = playerId;
+        } else {
+            // Already owned, but make sure it's in cache (idempotent)
+            if (!player.ownedTiles.includes(tile)) {
+                player.ownedTiles.push(tile);
+            }
+        }
     }
 
     spawnUnit(playerId: string, type: UnitType, x: number, y: number) {

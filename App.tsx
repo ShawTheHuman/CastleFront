@@ -1,239 +1,244 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { io, Socket } from 'socket.io-client';
+import { v4 as uuidv4 } from 'uuid';
 import { GameEngine } from './game/GameEngine';
 import { GameCanvas } from './components/GameCanvas';
 import { UIOverlay } from './components/UIOverlay';
-import { MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, PLAYER_COLORS } from './constants';
-import { BuildingType, UnitType, Lobby, PlayerProfile, MatchLog } from './types';
-import './index.css'; // Ensure base styles are loaded
+import { MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, PLAYER_COLORS, getRandomName, CAMP_NAMES, KINGDOM_NAMES } from './constants';
+import { BuildingType, UnitType, Lobby, PlayerProfile, MatchLog, ViewState } from './types';
+import './index.css';
 
-// Enums for UI phases
-enum ViewState {
-    IDENTITY = 'IDENTITY',
-    MATCHMAKING = 'MATCHMAKING',
-    LOBBY = 'LOBBY',
-    GAME_PLACEMENT = 'GAME_PLACEMENT', // "Lobby" inside the game engine (choosing spawn)
-    GAME_PLAYING = 'GAME_PLAYING',
-    RESULTS = 'RESULTS'
-}
+const LobbyCountdown = ({ expiresAt, onExpire }: { expiresAt: number, onExpire?: () => void }) => {
+    const [timeLeft, setTimeLeft] = useState(Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)));
 
-const PLAYER_ID = 'HUMAN_PLAYER';
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const t = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+            setTimeLeft(t);
+            if (t <= 0) {
+                clearInterval(interval);
+                onExpire?.();
+            }
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [expiresAt]);
 
-// --- NAME GENERATORS ---
-const KINGDOM_NAMES = [
-    "Aethelgard", "Brimstone", "Stormhold", "Ironclad", "Frostfall",
-    "Dragonreach", "Silvermoon", "Shadowfen", "Emberguard", "Ravenwatch",
-    "Goldspire", "Thunderpeak", "Windhaven", "Oakhollow", "Dawnstar",
-    "Winterfell", "Highgarden", "Riverrun", "Casterly", "StormsEnd"
-];
+    const mins = Math.floor(timeLeft / 60);
+    const secs = timeLeft % 60;
+    return <>{`${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`}</>;
+};
 
-const CAMP_NAMES = [
-    "Rat's Nest", "Bone Heap", "Mud Pit", "Scrap Yard", "Vulture Roost",
-    "Dead End", "Dust Bowl", "Rust Camp", "Thieves Den", "Beggar's Hollow",
-    "Rotten Tooth", "Flea Bottom", "Skull Crag", "Grim Hook", "Lost Hope",
-    "Carrion Hill", "Maggot Camp", "Sludge Pit", "Ogre's Toe", "Goblin Hut",
-    "Broken Shield", "Rusted Blade", "Torn Flag", "Burnt Log", "Cold Stone",
-    "Wet Moss", "Dark Corner", "Rat Trap", "Snake Pit", "Crow's Beak"
-];
-
-const getRandomName = (list: string[]) => list[Math.floor(Math.random() * list.length)];
-
-const App: React.FC = () => {
-    const [engine] = useState(() => new GameEngine({
-        mapWidth: MAP_WIDTH,
-        mapHeight: MAP_HEIGHT,
-        tileSize: TILE_SIZE
-    }));
-
+// --- MAIN APP CONTENT ---
+const AppContent = ({ engine }: { engine: GameEngine }) => {
     // --- STATE ---
     const [view, setView] = useState<ViewState>(ViewState.IDENTITY);
-    const [playerName, setPlayerName] = useState<string>('');
 
-    // Fake Server State
+    const [playerName, setPlayerName] = useState<string>('');
+    const [playerId, setPlayerId] = useState<string>('');
     const [lobbies, setLobbies] = useState<Lobby[]>([]);
     const [activeLobbyId, setActiveLobbyId] = useState<string | null>(null);
 
-    // Game State
-    const [gameStateToken, setGameStateToken] = useState(0);
+    // Game Client State
     const [selectedBuilding, setSelectedBuilding] = useState<BuildingType | null>(null);
     const [selectedSpawnUnitType, setSelectedSpawnUnitType] = useState<UnitType | null>(null);
     const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
-    const [spawnCountdown, setSpawnCountdown] = useState(20);
-    const [attackPercentage, setAttackPercentage] = useState(20);
+    const [attackPercentage, setAttackPercentage] = useState<number>(100);
+    const [spawnCountdown, setSpawnCountdown] = useState<number>(0);
     const [matchResult, setMatchResult] = useState<MatchLog | null>(null);
+    const [gameStateToken, setGameStateToken] = useState<number>(0); // Force re-render
 
-    // --- IDENTITY SYSTEM ---
+    const PLAYER_ID = playerId || playerName; // Use UUID if available!
+
+    // Ref for ActiveLobbyId to avoid socket re-init
+    const activeLobbyIdRef = useRef<string | null>(null);
+    const playerNameRef = useRef<string>('');
+
+    // Sync Ref
     useEffect(() => {
-        const savedName = localStorage.getItem('castlefront_player_name');
-        if (savedName) {
-            setPlayerName(savedName);
-            setView(ViewState.MATCHMAKING);
-        }
-    }, []);
+        activeLobbyIdRef.current = activeLobbyId;
+    }, [activeLobbyId]);
 
+    // Sync Player Name Ref
+    useEffect(() => {
+        playerNameRef.current = playerName;
+    }, [playerName]);
+
+    const handleExitGame = () => {
+        engine.isGameActive = false;
+        setView(ViewState.LOBBY);
+        socketRef.current?.emit('leave_game');
+    };
+
+    // Socket Ref
+    const socketRef = useRef<any | null>(null);
+
+    // Initialize Socket
+    useEffect(() => {
+        // Connect to real server
+        const newSocket = io('http://localhost:3002');
+        socketRef.current = newSocket;
+
+        if (newSocket) {
+            newSocket.on('connect', () => {
+                console.log('Connected to Game Server');
+                // Auto-register if we have a name (Reconnection Logic)
+                if (playerNameRef.current) {
+                    console.log('Auto-registering on reconnect:', playerNameRef.current);
+                    newSocket.emit('register', playerNameRef.current);
+                }
+            });
+
+            newSocket.on('lobbies_update', (list: Lobby[]) => {
+                setLobbies(list);
+            });
+
+            newSocket.on('lobby_state', (lobby: Lobby) => {
+                // ...
+            });
+
+            newSocket.on('registered', (player: PlayerProfile) => {
+                console.log('Registered with Server. ID:', player.id);
+                setPlayerId(player.id);
+            });
+
+            newSocket.on('game_start', (data: { lobby: Lobby, mapData: any }) => {
+                console.log('CLIENT RECEIVED game_start!', data);
+                // Use Ref to check if this is our lobby
+                if (data.lobby.id === activeLobbyIdRef.current) {
+                    console.log('Lobby ID Matches! Starting game...');
+                    startGameFromLobby(data.lobby, data.mapData);
+                } else {
+                    console.warn('Lobby ID Mismatch in game_start:', data.lobby.id, 'vs', activeLobbyIdRef.current);
+                }
+            });
+        }
+
+        return () => {
+            // newSocket.disconnect();
+        };
+    }, []); // STABLE SOCKET: No dependencies, runs once.
+
+    // ... Identity Logic ...
+    // Update Identity to REGISTER with server
     const handleNameSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (playerName.trim().length > 0) {
             localStorage.setItem('castlefront_player_name', playerName.trim());
+            socketRef.current?.emit('register', playerName.trim()); // Register with DB
             setView(ViewState.MATCHMAKING);
         }
     };
 
-    // --- FAKE SERVER: LOBBY & MATCHMAKING LOGIC ---
+    // Auto-register if name exists
+    /*
     useEffect(() => {
-        // Runs every 1 second to simulate server ticks
-        const interval = setInterval(() => {
-            const now = Date.now();
-            setLobbies(prevLobbies => {
-                let updatedLobbies = [...prevLobbies];
-
-                // 1. Clean up old/started lobbies
-                updatedLobbies = updatedLobbies.filter(l => l.status !== 'IN_PROGRESS' || l.id === activeLobbyId);
-
-                // 2. Continuous Lobby Generation
-                const waitingLobbies = updatedLobbies.filter(l => l.status === 'WAITING');
-                if (waitingLobbies.length === 0) {
-                    const newLobby: Lobby = {
-                        id: Math.random().toString(36).substr(2, 6).toUpperCase(),
-                        mapName: `Fractal Isles ${Math.floor(Math.random() * 100)}`,
-                        maxPlayers: 40, // Increased for 30 camps + 8 kingdoms + humans
-                        players: [],
-                        createdAt: now,
-                        expiresAt: now + 40000, // 40s wait
-                        status: 'WAITING'
-                    };
-                    updatedLobbies.push(newLobby);
-                }
-
-                // 3. Update Timers & Status
-                updatedLobbies = updatedLobbies.map(lobby => {
-                    if (lobby.status === 'WAITING') {
-                        // Check for start conditions
-                        if (now >= lobby.expiresAt || lobby.players.length >= lobby.maxPlayers) {
-                            return { ...lobby, status: 'STARTING' };
-                        }
-                    }
-                    return lobby;
-                });
-
-                return updatedLobbies;
-            });
-        }, 1000);
-        return () => clearInterval(interval);
-    }, [activeLobbyId]);
-
-    // Handle auto-starting game when my lobby starts
-    useEffect(() => {
-        if (activeLobbyId) {
-            const lobby = lobbies.find(l => l.id === activeLobbyId);
-            if (lobby && lobby.status === 'STARTING') {
-                startGameFromLobby(lobby);
+        const savedName = localStorage.getItem('castlefront_player_name');
+        if (savedName) {
+            setPlayerName(savedName);
+            // Ensure socket is ready implies we need to wait / checking ref.
+            if (socketRef.current) {
+                socketRef.current.emit('register', savedName);
+                setView(ViewState.MATCHMAKING);
+            } else {
+                // Retry or wait. Simplest is to just register when socket connects if name exists.
             }
         }
-    }, [lobbies, activeLobbyId]);
+    }, [socketRef.current]); 
+    */
+
+    // --- LOBBY ACTIONS ---
+    const createLobby = () => {
+        // socketRef.current?.emit('create_lobby', 'Fractal Valley');
+        // Actually user wanted "Found New Kingdom" removed.
+        // But if I strictly removed it, how do we create games?
+        // The server auto-creates them in my previous logic!
+        // The "Found New Kingdom" button was removed from UI, but the logic might still be needed if invalid?
+        // Wait, the SERVER logic I wrote has `socket.on('create_lobby')` but DOES IT AUTO GENERATE?
+        // My previous server code `App.tsx` (fake server) had auto-generation.
+        // My REAL server `server.ts` DOES NOT have auto-generation loop properly implemented yet!
+        // I need to update `server.ts` to auto-generate lobbies if I want that behavior.
+        // OR I can let the client create one if none exist?
+        // The user said "display only games that are actively accepting players".
+        // And "Found New Kingdom" button was removed. 
+        // So the SERVER must be responsible for creating lobbies.
+        // I should stick to Client impl here. Client just joins.
+    };
 
     const joinLobby = (lobbyId: string) => {
-        setLobbies(prev => prev.map(l => {
-            if (l.id === lobbyId && l.status === 'WAITING' && l.players.length < l.maxPlayers) {
-                // Add me
-                return {
-                    ...l,
-                    players: [...l.players, {
-                        id: PLAYER_ID,
-                        name: playerName,
-                        isAI: false,
-                        aiType: 'HUMAN' as any,
-                        color: PLAYER_COLORS[0]
-                    }]
-                };
-            }
-            return l;
-        }));
+        socketRef.current?.emit('join_lobby', lobbyId);
         setActiveLobbyId(lobbyId);
         setView(ViewState.LOBBY);
     };
 
-    const startGameFromLobby = (lobby: Lobby) => {
-        // 1. Mark lobby as in progress locally (server would do this)
-        setLobbies(prev => prev.map(l => l.id === lobby.id ? { ...l, status: 'IN_PROGRESS' } : l));
+    const startGameFromLobby = (lobby: Lobby, mapData?: any) => {
+        if (!engine) return;
 
-        // 2. Fill with Bots
-        const roster: PlayerProfile[] = [...lobby.players];
+        // Re-init engine with players
+        console.log("Starting match with map:", mapData?.name || "Procedural");
 
+        // Add Bots
+        const roster = [...lobby.players];
         // Add 30 Camps
         for (let i = 0; i < 30; i++) {
             roster.push({
-                id: `CAMP_${i}`,
+                id: `CAMP_${i} `,
                 name: getRandomName(CAMP_NAMES),
                 isAI: true,
                 aiType: 'CAMP' as any,
-                color: '#57534e' // Stone-600 (Scavenger Neutral)
+                color: '#57534e'
             });
         }
-
-        // Add Kingdoms until Full (or at least a few)
+        // Add Kingdoms
         const kingdomsNeeded = Math.min(8, lobby.maxPlayers - roster.length);
-        const shuffledKingdoms = [...KINGDOM_NAMES].sort(() => 0.5 - Math.random());
-
         for (let i = 0; i < kingdomsNeeded; i++) {
             roster.push({
-                id: `KINGDOM_${i}`,
-                name: shuffledKingdoms[i % shuffledKingdoms.length],
+                id: `KINGDOM_${i} `,
+                name: KINGDOM_NAMES[i % KINGDOM_NAMES.length],
                 isAI: true,
                 aiType: 'KINGDOM' as any,
                 color: PLAYER_COLORS[(roster.length) % PLAYER_COLORS.length]
             });
         }
 
-        // 3. Initialize Engine
-        engine.init(roster);
-
-        // 4. Transition UI
+        engine.init(roster, mapData);
         setSpawnCountdown(20);
         setView(ViewState.GAME_PLACEMENT);
     };
 
-    const handleExitGame = () => {
-        engine.isGameActive = false;
-        setActiveLobbyId(null);
-        setMatchResult(null);
-        setView(ViewState.MATCHMAKING);
-    };
-
-    // --- GAMEPLAY LOGIC ---
-
-    // Spawn Timer
+    // ... Gameplay Loop with SNAPSHOT ...
+    // 2. GAME PLAYING LOOP (LOGIC ONLY)
     useEffect(() => {
-        let interval: ReturnType<typeof setInterval>;
-        if (view === ViewState.GAME_PLACEMENT) {
-            interval = setInterval(() => {
-                setSpawnCountdown(prev => {
-                    if (prev <= 1) {
-                        engine.spawnHumanRandomly(PLAYER_ID);
-                        engine.startMatch();
-                        setView(ViewState.GAME_PLAYING);
-                        return 0;
-                    }
-                    return prev - 1;
-                });
-            }, 1000);
-        }
-        return () => clearInterval(interval);
-    }, [view, engine]);
-
-    // Game Loop
-    useEffect(() => {
-        if (view === ViewState.GAME_PLAYING || view === ViewState.GAME_PLACEMENT) {
+        if (view === ViewState.GAME_PLAYING) {
             const interval = setInterval(() => {
                 engine.update(100);
-                setGameStateToken(prev => prev + 1); // Trigger re-render for UI
+                // setGameStateToken(p => p + 1); // REMOVED: No longer forcing App re-render
+
+                // Auto-Save Snapshot
+                if (engine.tickCount % 100 === 0 && activeLobbyId) {
+                    const snapshot = {
+                        players: engine.players.map(p => ({ id: p.id, pop: p.population, mil: p.militaryPopulation })),
+                    };
+                    socketRef.current?.emit('save_snapshot', {
+                        lobbyId: activeLobbyId,
+                        tick: engine.tickCount,
+                        state: snapshot
+                    });
+                }
+
                 if (engine.isGameOver) {
                     setMatchResult(engine.getMatchLog());
                     setView(ViewState.RESULTS);
                 }
-            }, 100); // Update every 100ms
+            }, 100);
             return () => clearInterval(interval);
         }
-    }, [view, engine]);
+    }, [view, engine, activeLobbyId]);
+
+    // ... (skipping to render) ...
+
+
+
+    // ... Rest of the file ...
 
     // Game Interaction Handlers
     const handleTileSelect = (x: number, y: number) => {
@@ -287,7 +292,7 @@ const App: React.FC = () => {
 
     // --- COMPONENT RENDER ---
 
-    // 1. IDENTITY VIEW
+    // 1. IDENTITY VIEW (ENTER NAME)
     if (view === ViewState.IDENTITY) {
         return (
             <div className="w-full h-screen flex items-center justify-center bg-[#0c0a09] relative overflow-hidden">
@@ -370,61 +375,58 @@ const App: React.FC = () => {
 
                 {/* Lobby Grid */}
                 <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 px-4 pb-20 overflow-y-auto custom-scrollbar h-full">
-                    {/* Create Card */}
-                    <button
-                        onClick={() => {
-                            const newId = Math.random().toString(36).substring(7).toUpperCase();
-                            const newLobby = { id: newId, mapName: 'Highlands', players: [{ id: PLAYER_ID, name: playerName, isAI: false, color: PLAYER_COLORS[0] }], maxPlayers: 8, createdAt: Date.now(), expiresAt: Date.now(), status: 'WAITING' } as Lobby;
-                            setLobbies([newLobby, ...lobbies]);
-                            setActiveLobbyId(newLobby.id);
-                            setView(ViewState.LOBBY);
-                        }}
-                        className="group relative h-48 rounded-lg border-2 border-dashed border-amber-900/30 hover:border-amber-500/50 hover:bg-amber-900/10 transition-all flex flex-col items-center justify-center gap-4"
-                    >
-                        <div className="w-16 h-16 rounded-full bg-amber-900/20 group-hover:bg-amber-700 group-hover:shadow-[0_0_30px_rgba(180,83,9,0.4)] transition-all flex items-center justify-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8 text-amber-700 group-hover:text-amber-100">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                            </svg>
-                        </div>
-                        <span className="text-amber-700 font-display text-lg font-bold tracking-wider group-hover:text-amber-100 transition-colors uppercase">Found New Kingdom</span>
-                    </button>
-
                     {/* Lobby Cards */}
-                    {lobbies.map(lobby => (
-                        <div key={lobby.id} className="glass-panel p-6 rounded-lg relative group hover:translate-y-[-3px] transition-all duration-300 bg-[#1c1917]">
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="text-xs text-amber-600 font-bold tracking-widest uppercase">PROVINCE {lobby.id}</div>
-                                <div className={`px-2 py-0.5 rounded text-[10px] font-bold border ${lobby.status === 'WAITING' ? 'bg-green-900/20 text-green-400 border-green-800' : 'bg-red-900/20 text-red-400 border-red-800'}`}>
-                                    {lobby.status === 'WAITING' ? 'GATHERING' : 'AT WAR'}
+                    {lobbies.filter(l => l.status === 'WAITING').map(lobby => {
+                        const timeLeft = Math.max(0, Math.ceil((lobby.expiresAt - Date.now()) / 1000));
+                        return (
+                            <div key={lobby.id} className="glass-panel p-6 rounded-lg relative group hover:translate-y-[-3px] transition-all duration-300 bg-[#1c1917] border-2 border-amber-900/20 hover:border-amber-500/50">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className="text-xs text-amber-600 font-bold tracking-widest uppercase">PROVINCE {lobby.id}</div>
+                                    <div className="px-2 py-0.5 rounded text-[10px] font-bold border bg-green-900/20 text-green-400 border-green-800 flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+                                        GATHERING ARMIES
+                                    </div>
+                                </div>
+
+                                <h3 className="text-3xl font-black text-amber-100 mb-1 font-display tracking-tight">{lobby.mapName}</h3>
+                                <div className="flex items-center gap-2 mb-6">
+                                    <div className="text-sm text-stone-500 font-serif italic">Battle commences in:</div>
+                                    <div className="text-xl font-bold text-amber-500 font-display tabular-nums">
+                                        <LobbyCountdown expiresAt={lobby.expiresAt} />
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-between items-end">
+                                    <div className="flex -space-x-2">
+                                        {lobby.players.map((p, i) => (
+                                            <div key={i} className="w-8 h-8 rounded-full bg-stone-800 border-2 border-stone-950 flex items-center justify-center text-xs text-amber-100 z-10 shadow-lg" title={p.name}>
+                                                {p.name.charAt(0)}
+                                            </div>
+                                        ))}
+                                        {Array.from({ length: Math.max(0, 3 - lobby.players.length) }).map((_, i) => (
+                                            <div key={`e - ${i} `} className="w-8 h-8 rounded-full bg-stone-900/50 border border-dashed border-stone-700 block"></div>
+                                        ))}
+                                    </div>
+                                    <button
+                                        onClick={() => joinLobby(lobby.id)}
+                                        className="px-8 py-3 bg-amber-700 hover:bg-amber-600 text-white rounded text-sm font-bold border border-amber-500 shadow-[0_4px_14px_rgba(245,158,11,0.4)] transition-all font-display tracking-wider hover:scale-105 active:scale-95"
+                                    >
+                                        ENTER WAR
+                                    </button>
+                                </div>
+
+                                {/* Progress Bar for Timer */}
+                                <div className="absolute bottom-0 left-0 h-1 bg-amber-900/50 w-full rounded-b-lg overflow-hidden">
+                                    <div
+                                        className="h-full bg-amber-500 transition-all duration-1000 ease-linear"
+                                        style={{ width: `${(timeLeft / 40) * 100}% ` }}
+                                    ></div>
                                 </div>
                             </div>
-
-                            <h3 className="text-2xl font-bold text-amber-100 mb-1 font-display">{lobby.mapName}</h3>
-                            <p className="text-sm text-stone-500 mb-6 font-serif italic">Lord: <span className="text-amber-500">COMMANDER_X</span></p>
-
-                            <div className="flex justify-between items-end">
-                                <div className="flex -space-x-2">
-                                    {lobby.players.map((p, i) => (
-                                        <div key={i} className="w-8 h-8 rounded-full bg-stone-800 border border-stone-950 flex items-center justify-center text-xs text-amber-100 z-10 shadow-lg" title={p.name}>
-                                            {p.name.charAt(0)}
-                                        </div>
-                                    ))}
-                                    {Array.from({ length: Math.max(0, 3 - lobby.players.length) }).map((_, i) => (
-                                        <div key={`e-${i}`} className="w-8 h-8 rounded-full bg-stone-900/50 border border-dashed border-stone-700 block"></div>
-                                    ))}
-                                </div>
-                                <button
-                                    onClick={() => joinLobby(lobby.id)}
-                                    disabled={lobby.status !== 'WAITING'}
-                                    className="px-6 py-2 bg-stone-800 hover:bg-amber-800 text-amber-100 rounded text-sm font-bold border border-amber-700/30 hover:border-amber-500 transition-all font-display tracking-wider disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
-                                >
-                                    JOIN WAR
-                                </button>
-                            </div>
-                        </div>
-                    ))}
+                        )
+                    })}
                 </div>
-            </div>
+            </div >
         );
     }
 
@@ -432,6 +434,13 @@ const App: React.FC = () => {
     if (view === ViewState.LOBBY) {
         const currentLobby = lobbies.find(l => l.id === activeLobbyId);
         if (!currentLobby) return null;
+
+        const timeLeft = Math.max(0, Math.ceil((currentLobby.expiresAt - Date.now()) / 1000));
+        const formatTime = (s: number) => {
+            const mins = Math.floor(s / 60);
+            const secs = s % 60;
+            return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs} `;
+        };
 
         return (
             <div className="w-full h-screen bg-[#0c0a09] flex items-center justify-center p-4 relative overflow-hidden">
@@ -443,6 +452,7 @@ const App: React.FC = () => {
                         <div>
                             <h2 className="text-4xl font-black text-amber-100 font-display mb-1 drop-shadow-lg">WAR ROOM</h2>
                             <p className="text-amber-700 text-sm tracking-[0.2em] font-serif uppercase">Province: {activeLobbyId} // The Highlands</p>
+                            <p className="text-xs text-stone-600">DEBUG: Host={currentLobby.hostId} | Me={PLAYER_ID} | Match={currentLobby.hostId === PLAYER_ID ? 'YES' : 'NO'}</p>
                         </div>
                         <div className="text-right">
                             <div className="text-[10px] text-stone-500 uppercase font-bold mb-1">State</div>
@@ -469,14 +479,17 @@ const App: React.FC = () => {
                         <div className="flex flex-col justify-end items-center bg-black/20 rounded p-6 border border-amber-900/20">
                             <div className="mb-auto w-full text-center py-8">
                                 <div className="text-6xl font-black text-stone-800 font-display tracking-tighter drop-shadow-sm">
-                                    00:00
+                                    <LobbyCountdown expiresAt={currentLobby.expiresAt} />
                                 </div>
                                 <div className="text-xs text-stone-600 font-serif italic mt-2">BATTLE COMMENCES IN...</div>
                             </div>
 
                             <div className="w-full space-y-3">
                                 <button
-                                    onClick={() => startGameFromLobby(currentLobby)}
+                                    onClick={() => {
+                                        console.log('CLICKED SOUND HORNS. Socket:', socketRef.current?.id);
+                                        socketRef.current?.emit('start_game');
+                                    }}
                                     className="w-full py-4 lord-button text-amber-100 font-bold rounded shadow-lg font-display text-xl tracking-widest uppercase border border-amber-500/30"
                                 >
                                     Sound the Horns
@@ -512,6 +525,8 @@ const App: React.FC = () => {
                     onSelectTile={(x: number, y: number) => {
                         if (engine.spawnHumanBase(PLAYER_ID, x, y)) {
                             engine.startMatch();
+
+                            setGameStateToken(uuidv4()); // Force re-render
                             setView(ViewState.GAME_PLAYING);
                         }
                     }}
@@ -530,21 +545,22 @@ const App: React.FC = () => {
             <div className="w-full h-screen bg-black relative overflow-hidden">
                 <GameCanvas
                     engine={engine}
-                    playerId={PLAYER_ID}
+                    width={MAP_WIDTH * TILE_SIZE}
+                    height={MAP_HEIGHT * TILE_SIZE}
+                    tileSize={TILE_SIZE}
+                    currentPlayerId={PLAYER_ID}
                     selectedBuildingType={selectedBuilding}
-                    selectedSpawnUnitType={selectedSpawnUnitType}
-                    selectedUnitId={selectedUnitId}
-                    onSelectUnit={handleUnitSelect}
                     onSelectTile={handleTileSelect}
                     onPlaceBuilding={handlePlaceBuilding}
                     onSpawnUnitAt={handleSpawnUnitAt}
                 />
                 <UIOverlay
-                    player={currentPlayer}
-                    onBuildSelect={handleBuildSelect}
-                    onUnitSpawn={handleUnitSpawnToggle}
+                    engine={engine}
+                    playerId={PLAYER_ID}
                     selectedBuilding={selectedBuilding}
+                    onBuildSelect={handleBuildSelect}
                     selectedSpawnUnitType={selectedSpawnUnitType}
+                    onUnitSpawnToggle={handleUnitSpawnToggle}
                     attackPercentage={attackPercentage}
                     setAttackPercentage={setAttackPercentage}
                     onExit={handleExitGame}
@@ -557,10 +573,10 @@ const App: React.FC = () => {
         return (
             <div className="w-screen h-screen flex items-center justify-center relative overflow-hidden bg-[#0c0a09]">
                 {/* Dynamic Background based on result */}
-                <div className={`absolute inset-0 opacity-30 ${gameResult === 'VICTORY' ? 'bg-amber-900' : 'bg-red-950'}`}></div>
+                <div className={`absolute inset - 0 opacity - 30 ${gameResult === 'VICTORY' ? 'bg-amber-900' : 'bg-red-950'} `}></div>
 
                 <div className="glass-panel p-16 rounded-lg text-center z-10 max-w-lg w-full border-medieval shadow-2xl transform scale-100 bg-[#1c1917]">
-                    <h1 className={`text-6xl font-black font-display mb-4 tracking-tight drop-shadow-xl ${gameResult === 'VICTORY' ? 'text-amber-400' : 'text-stone-500'}`}>
+                    <h1 className={`text - 6xl font - black font - display mb - 4 tracking - tight drop - shadow - xl ${gameResult === 'VICTORY' ? 'text-amber-400' : 'text-stone-500'} `}>
                         {gameResult === 'VICTORY' ? 'VICTORY' : 'DEFEAT'}
                     </h1>
                     <p className="text-stone-400 font-serif italic text-lg mb-10">
@@ -590,6 +606,27 @@ const App: React.FC = () => {
     }
 
     return null;
+};
+
+const App = () => {
+    const [engine] = useState(() => {
+        try {
+            return new GameEngine({
+                mapWidth: MAP_WIDTH,
+                mapHeight: MAP_HEIGHT,
+                tileSize: TILE_SIZE
+            });
+        } catch (e) {
+            console.error("Engine Init Failed:", e);
+            return null;
+        }
+    });
+
+    if (!engine) {
+        return <div className="text-white text-4xl p-10">GAME ENGINE CRASHED ON INIT. CHECK CONSOLE.</div>;
+    }
+
+    return <AppContent engine={engine} />;
 };
 
 export default App;

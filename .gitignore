@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 dist
+scripts/generate_maps.ts
 dist-ssr
 *.local
 

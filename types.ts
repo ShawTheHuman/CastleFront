@@ -132,11 +132,12 @@ export interface Camera {
 
 export interface Lobby {
   id: string;
+  mapId: string; // Link to DB Map
   mapName: string;
   players: PlayerProfile[];
   maxPlayers: number;
   createdAt: number;
-  expiresAt: number; // Timestamp when it force starts
+  expiresAt: number;
   status: 'WAITING' | 'STARTING' | 'IN_PROGRESS';
 }
 
@@ -147,4 +148,13 @@ export interface MatchLog {
   winnerId: string;
   totalPlayers: number;
   timestamp: number;
+}
+
+export enum ViewState {
+  IDENTITY = 'IDENTITY',
+  MATCHMAKING = 'MATCHMAKING',
+  LOBBY = 'LOBBY',
+  GAME_PLACEMENT = 'GAME_PLACEMENT',
+  GAME_PLAYING = 'GAME_PLAYING',
+  RESULTS = 'RESULTS'
 }

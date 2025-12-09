@@ -77,3 +77,15 @@ export const PLAYER_COLORS = [
   '#a16207', // Yellow 700
   '#7e22ce', // Purple 700
 ];
+
+export const CAMP_NAMES = [
+  "Bandits", "Outlaws", "Raiders", "Rebels", "Exiles", "Rogues", "Marauders", "Vagabonds"
+];
+
+export const KINGDOM_NAMES = [
+  "North", "South", "East", "West", "Highlands", "Lowlands", "Riverlands", "Coast"
+];
+
+export function getRandomName(names: string[]): string {
+  return names[Math.floor(Math.random() * names.length)];
+}
