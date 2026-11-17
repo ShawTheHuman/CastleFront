@@ -310,3 +310,29 @@ Pacing from `npm run balance` (pace 1 = attentive player; `--pace 0.5` = half as
 | 4   | 8h 08m       | 39%         | 5d 22h         | 8     |
 | 6   | 12h 06m      | 35%         | 5d 9h          | 10    |
 | 8   | 22h 44m      | 30%         | –              | –     |
+
+### Phase 3: battles (done)
+
+- **Battle simulation** (`src/core/battle.ts`, pure and deterministic per seed). Each army's
+  power becomes riflemen, tanks and artillery in the proportions its buildings field, with total
+  HP and total damage per second both ∝ √power, so in a Lanchester-style fight the stronger army
+  usually wins. Units find the nearest enemy, close to range, fire on a reload timer, and
+  artillery splashes. The rival base's defenders hold their line until attacked, then the whole
+  garrison engages.
+- **The assault is played.** Drag anywhere to walk the commander: troops follow in formation and
+  fight harder inside the commander's aura (+10%). **Charge** sends everyone in with +25% damage
+  and +50% speed for 5 s (15 s cooldown). Left alone for 4 s the army advances without the boost.
+  90 s time limit; Retreat counts as a failed assault.
+- **Tuning** (measured over four army mixes): with no input you need about even power to win;
+  commanding well (charging at contact, keeping the commander with the front) is worth about 15%
+  power. The preview shows the odds: likely (≥1.05×), close (0.85–1.05×), unlikely.
+- **Outposts** still fall by power (so idle and offline progress is unchanged), and each capture
+  plays as a short skirmish on the road where the outpost stood.
+- Rendering: units, tanks and artillery are instanced per team (about a dozen draw calls for 140
+  units); casualties topple and sink; tracers and shell bursts; the commander carries a flag and
+  an aura ring.
+- Fixed along the way: the sand road had a negative length and vanished from some camera angles;
+  the splash-screen code ran every frame, creating timers each frame.
+
+Still to do: the rival's own attack is resolved instantly (no battle yet); the simulator's
+assaults are decided by power, not played.

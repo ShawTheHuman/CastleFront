@@ -52,6 +52,10 @@ export const BALANCE = {
   rivalRaidMaxMinutes: 30,
   /** Hours between rival attacks after one breaks through. */
   rivalAttackCooldownHours: 8,
+  /** Damage multiplier for the rival base's defenders (walls, dug-in positions). Tuned with the
+   * battle sim so an even fight with no input is roughly a coin flip, and commanding well
+   * (charging at contact, keeping the commander at the front) wins close fights. */
+  assaultFortification: 0.95,
   /** Minutes the player's army regroups after a failed assault on the rival base. */
   assaultCooldownMinutes: 10,
 

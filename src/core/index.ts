@@ -12,3 +12,4 @@ export * from './upgrades';
 export * from './game';
 export * from './save';
 export * from './describe';
+export * from './battle';

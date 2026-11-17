@@ -7,8 +7,9 @@ import {
   deserialize,
   formatDuration,
   formatNumber,
-  assault,
+  assaultOdds,
   assaultPreview,
+  resolveAssault,
   isHQ,
   levelOutput,
   rivalBuildFraction,
@@ -31,7 +32,9 @@ import {
 import { ASSETS, getAsset } from './data/assets';
 import { BALANCE } from './data/balance';
 import { localSaveStorage } from './platform/storage';
+import { BattleDirector } from './battleDirector';
 import { World } from './render/world';
+import { BattleHud } from './ui/battleHud';
 import { ICON, el } from './ui/dom';
 import { TopHud } from './ui/hud';
 import { Labels } from './ui/labels';
@@ -84,9 +87,21 @@ const sheet = new BuildingSheet(
     syncWorld();
   },
 );
+const battleHud = new BattleHud(canvas);
+const battles = new BattleDirector(world, battleHud);
 ui.append(labels.root, top.root);
 top.mountAssault(ui);
+ui.append(battleHud.root);
 sheet.mount(ui);
+
+battleHud.onRetreat = () => battles.retreat();
+battles.onAssaultEnd = (won) => {
+  ui.classList.remove('in-battle');
+  if (won) toast('Victory! The rival base has fallen.', 'win', 3000);
+  handleEvents(resolveAssault(state, won));
+  syncWorld();
+  persist();
+};
 
 function syncWorld(): void {
   for (const a of ASSETS) {
@@ -112,6 +127,7 @@ const unitsFor = (power: { log10(): number }) =>
 // ── Input: drag to pan, tap a building to open it ──────────────────────
 let down: { x: number; y: number; lastY: number; dragging: boolean } | null = null;
 canvas.addEventListener('pointerdown', (e) => {
+  if (battles.assaultActive) return; // the battle HUD's joystick owns the screen
   down = { x: e.clientX, y: e.clientY, lastY: e.clientY, dragging: false };
   canvas.setPointerCapture(e.pointerId);
 });
@@ -168,10 +184,14 @@ function compareRow(who: string, level: number): HTMLElement {
 /** Preview, then launch, the assault on the rival's base. */
 function showAssault(): void {
   const p = assaultPreview(state);
-  if (!p.reachable || p.regroupIn > 0) return;
-  const verdict = p.wins
-    ? 'Your army is stronger. Victory is in reach.'
-    : `Their army is stronger. You need ${formatNumber(p.theirs.sub(p.ours))} more power, or the attack will fail and your army must regroup.`;
+  if (!p.reachable || p.regroupIn > 0 || battles.assaultActive) return;
+  const odds = assaultOdds(p.ours, p.theirs);
+  const verdict =
+    odds === 'likely'
+      ? 'Your army is stronger. Victory is likely.'
+      : odds === 'close'
+        ? 'A close fight. Keep your commander with the troops and hit Charge as the armies meet.'
+        : `Their army is much stronger. You need about ${formatNumber(p.theirs.sub(p.ours))} more power, or the assault will likely fail and your army must regroup.`;
   showModal(
     'Assault the rival base?',
     [
@@ -180,12 +200,17 @@ function showAssault(): void {
     ],
     [
       {
-        label: p.wins ? 'Attack!' : 'Attack anyway',
-        kind: p.wins ? 'primary' : 'danger',
-        onClick: () => handleEvents(assault(state)),
+        label: odds === 'unlikely' ? 'Attack anyway' : 'Attack!',
+        kind: odds === 'unlikely' ? 'danger' : 'primary',
+        onClick: () => {
+          sheet.close();
+          ui.classList.add('in-battle');
+          battles.startAssault(state);
+        },
       },
       { label: 'Not yet', kind: 'plain' },
     ],
+    'assault',
   );
 }
 
@@ -203,6 +228,7 @@ function handleEvents(events: ProgressEvent[], quiet = false): void {
     if (e.kind === 'sectorCleared') {
       const progressAfter = (e.map - 1) * (BALANCE.sectorsPerMap + 1) + e.index + 1;
       if (!quiet && !isHQ(e.index)) {
+        battles.startSkirmish(state, e.map, e.index);
         toast(
           `Outpost taken! +${formatNumber(e.bounty)} ${ICON.gold} · its income is yours now`,
           'win',
@@ -420,6 +446,8 @@ function frame(now: number): void {
     persist();
   }
 
+  battles.update(state, dt);
+  ui.classList.toggle('in-battle', battles.assaultActive);
   world.update(
     dt,
     unitsFor(armyPower(state)),
@@ -429,17 +457,17 @@ function frame(now: number): void {
   );
   labels.place(hudBottom);
   requestAnimationFrame(frame);
-
-  // Hide the splash once the first frames have drawn and the fonts are in (or after 3 s at most).
-  Promise.race([
-    Promise.all([
-      document.fonts?.ready ?? Promise.resolve(),
-      new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
-    ]),
-    new Promise((r) => setTimeout(r, 3000)),
-  ]).then(() => document.getElementById('splash')?.classList.add('done'));
 }
 requestAnimationFrame(frame);
+
+// Hide the splash once the first frames have drawn and the fonts are in (or after 3 s at most).
+Promise.race([
+  Promise.all([
+    document.fonts?.ready ?? Promise.resolve(),
+    new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+  ]),
+  new Promise((r) => setTimeout(r, 3000)),
+]).then(() => document.getElementById('splash')?.classList.add('done'));
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) persist();
@@ -452,6 +480,10 @@ Object.assign(window, {
   cf: {
     get state() {
       return state;
+    },
+    /** The battle director (debugging). */
+    get battles() {
+      return battles;
     },
     /** Draw calls and triangles of the last frame. */
     get render() {

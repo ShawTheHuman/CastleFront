@@ -139,14 +139,22 @@ export function assaultPreview(state: GameState): AssaultPreview {
   };
 }
 
-/** The player attacks the rival's base. Win: the map is conquered. Lose: the army regroups. */
-export function assault(state: GameState): ProgressEvent[] {
+/**
+ * Apply the result of an assault on the rival's base (decided by a played battle, or by power for
+ * the balance sim). Win: the map is conquered. Lose: the army regroups.
+ */
+export function resolveAssault(state: GameState, won: boolean): ProgressEvent[] {
   const p = assaultPreview(state);
   if (!p.reachable || p.regroupIn > 0) return [];
-  if (p.wins) return clearCurrent(state);
+  if (won) return clearCurrent(state);
   const readyIn = BALANCE.assaultCooldownMinutes * 60;
   state.assaultReadyAt = state.playTime + readyIn;
   return [{ kind: 'assaultFailed', ours: p.ours, theirs: p.theirs, readyIn }];
+}
+
+/** Assault decided by power alone (stronger army wins): used by the balance simulator. */
+export function assault(state: GameState): ProgressEvent[] {
+  return resolveAssault(state, assaultPreview(state).wins);
 }
 
 /**

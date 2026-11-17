@@ -824,3 +824,171 @@ button:focus-visible {
 #splash.error .splash-note {
   color: var(--enemy-deep);
 }
+
+/* ── Battle ────────────────────────────────────────────── */
+.battle-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.battle-hud > * {
+  pointer-events: auto;
+}
+.bh-top {
+  position: absolute;
+  inset: 0 0 auto;
+  margin: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 0
+    max(10px, env(safe-area-inset-left));
+  display: grid;
+  gap: 5px;
+  background: rgba(28, 38, 44, 0.92);
+  color: var(--chip-ink);
+  border-radius: var(--r);
+  padding: 8px 10px 9px 12px;
+}
+.bh-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bh-title {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: 16px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bh-timer {
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.bh-retreat {
+  border: 0;
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-weight: 800;
+  font-size: 12px;
+}
+.bh-lane {
+  display: grid;
+  grid-template-columns: 40px 1fr 30px;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+.bh-who {
+  color: rgba(255, 255, 255, 0.7);
+}
+.bh-count {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.bh-bar {
+  height: 9px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.bh-fill {
+  height: 100%;
+  border-radius: 9px;
+  transition: width 0.2s;
+}
+.bh-fill.ours {
+  background: linear-gradient(90deg, var(--olive), #8fd16e);
+}
+.bh-fill.theirs {
+  background: var(--enemy);
+}
+.bh-hint {
+  position: absolute;
+  left: 50%;
+  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 120px);
+  transform: translateX(-50%);
+  font-family: var(--font-display);
+  font-size: 20px;
+  letter-spacing: 0.03em;
+  color: #fff;
+  text-shadow: 0 2px 0 rgba(31, 42, 48, 0.75);
+  white-space: nowrap;
+  pointer-events: none !important;
+  transition: opacity 0.4s;
+}
+.bh-hint.done {
+  opacity: 0;
+}
+.bh-stick {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.7);
+  background: rgba(31, 42, 48, 0.18);
+  pointer-events: none !important;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.bh-stick.on {
+  opacity: 1;
+}
+.bh-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
+  transform: translate(-50%, -50%);
+}
+.bh-charge {
+  position: absolute;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: calc(max(18px, env(safe-area-inset-bottom)) + 6px);
+  width: 104px;
+  height: 104px;
+  border: 0;
+  border-radius: 50%;
+  background: conic-gradient(rgba(31, 42, 48, 0.75) var(--cd, 0deg), var(--enemy) 0);
+  box-shadow:
+    0 5px 0 var(--enemy-deep),
+    0 0 0 4px #fff inset;
+  color: #fff;
+  touch-action: manipulation;
+}
+.bh-charge.ready {
+  animation: throb-c 1.2s ease-in-out infinite;
+}
+.bh-charge.active {
+  background: var(--brass);
+  box-shadow:
+    0 5px 0 var(--brass-deep),
+    0 0 0 4px #fff inset;
+}
+.bh-charge-label {
+  font: 20px/1 var(--font-display);
+  letter-spacing: 0.03em;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
+}
+@keyframes throb-c {
+  50% {
+    transform: scale(1.07);
+  }
+}
+
+/* During an assault the battle HUD replaces the base UI. */
+#hud.in-battle .top-hud,
+#hud.in-battle .assault-btn,
+#hud.in-battle .labels,
+#hud.in-battle .sheet,
+#hud.in-battle .sheet-backdrop {
+  display: none;
+}

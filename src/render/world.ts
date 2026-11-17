@@ -36,8 +36,8 @@ export const LAYOUT: Record<string, { x: number; z: number }> = {
 const WALL_Z = -12;
 const MIRROR_Z = -24;
 const RIVAL_WALL_Z = 2 * MIRROR_Z - WALL_Z; // -36
-const OUTPOST_FIRST_Z = -15.5;
-const OUTPOST_STEP = 2.2;
+const OUTPOST_FIRST_Z = -17;
+const OUTPOST_STEP = 1.9;
 const RIVAL_ARMY_Z = RIVAL_WALL_Z + 3;
 const PAN_MIN = 2 * MIRROR_Z - 4; // looking at the rival's base
 const PAN_MAX = 9;
@@ -79,7 +79,7 @@ const key = (side: Side, assetId: string) => `${side}:${assetId}`;
 
 export class World {
   readonly renderer: THREE.WebGLRenderer;
-  private scene = new THREE.Scene();
+  readonly scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(50, 1, 0.5, 300);
   private sun = new THREE.DirectionalLight(0xffffff, 1.5);
   private slots = new Map<string, Slot>();
@@ -93,6 +93,8 @@ export class World {
   private dummy = new THREE.Object3D();
   private time = 0;
   private enemyZ = OUTPOST_FIRST_Z;
+  /** While a battle is drawn, the idle formations are hidden and the camera can follow it. */
+  private battle: { followZ: number | null } | null = null;
   private reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -177,7 +179,7 @@ export class World {
     }
 
     const road = new THREE.Mesh(
-      new THREE.BoxGeometry(13, 0.06, RIVAL_WALL_Z - WALL_Z),
+      new THREE.BoxGeometry(13, 0.06, Math.abs(RIVAL_WALL_Z - WALL_Z)),
       mat(COLORS.sand),
     );
     road.position.set(0, 0.03, MIRROR_Z);
@@ -307,6 +309,26 @@ export class World {
     this.targetZ = VIEW_Z[view];
   }
 
+  /** World z where the formation of outpost `index` stands. */
+  outpostZ(index: number): number {
+    return OUTPOST_FIRST_Z - index * OUTPOST_STEP;
+  }
+
+  /** World z of the rival base's defensive line. */
+  get rivalLineZ(): number {
+    return RIVAL_ARMY_Z;
+  }
+
+  /** World z of our own wall. */
+  get ourWallZ(): number {
+    return WALL_Z;
+  }
+
+  /** Enter (or leave, with null) battle mode; `followZ` makes the camera track a world z. */
+  setBattle(battle: { followZ: number | null } | null): void {
+    this.battle = battle;
+  }
+
   /** The view the camera is closest to. */
   get view(): View {
     let best: View = 'base';
@@ -355,7 +377,10 @@ export class World {
    */
   update(dt: number, ourUnits: number, enemyUnits: number, outpost: number, atBase: boolean): void {
     this.time += dt;
-    const k = 1 - Math.exp(-dt * 10);
+    if (this.battle?.followZ != null) {
+      this.targetZ = THREE.MathUtils.clamp(this.battle.followZ, PAN_MIN, PAN_MAX);
+    }
+    const k = 1 - Math.exp(-dt * (this.battle?.followZ != null ? 3 : 10));
     this.focusZ += (this.targetZ - this.focusZ) * k;
     const focus = new THREE.Vector3(0, 0, this.focusZ);
     this.camera.position.copy(focus).add(CAM_OFFSET);
@@ -367,8 +392,9 @@ export class World {
     const targetEnemyZ = atBase ? RIVAL_ARMY_Z : OUTPOST_FIRST_Z - outpost * OUTPOST_STEP;
     this.enemyZ += (targetEnemyZ - this.enemyZ) * (1 - Math.exp(-dt * 2));
     const oursZ = Math.min(WALL_Z - 2.5, this.enemyZ + 6);
-    this.layoutUnits(this.ours, this.ourHeads, ourUnits, oursZ, 1, 0.5);
-    this.layoutUnits(this.theirs, this.theirHeads, enemyUnits, this.enemyZ, -1, 0.3);
+    const idle = this.battle === null;
+    this.layoutUnits(this.ours, this.ourHeads, idle ? ourUnits : 0, oursZ, 1, 0.5);
+    this.layoutUnits(this.theirs, this.theirHeads, idle ? enemyUnits : 0, this.enemyZ, -1, 0.3);
 
     const motion = this.reducedMotion ? 0 : 1;
     for (const slot of this.slots.values()) {
