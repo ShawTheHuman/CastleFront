@@ -234,3 +234,21 @@ First pacing from `npm run balance` (always-online optimal play, so real players
 
 Known tuning items: the HQ is a large wall (about half of each map's time); the steel/fuel chain is the
 bottleneck while farms and barracks cap early; later maps slowly drift above the 1.3× target.
+
+### Phase 2 (done)
+
+- 3D base: every building has its own low-poly model on a fixed plot (front line nearest the wall,
+  back line behind). Locked and unbuilt plots show as construction sites. Buildings grow a little at
+  each ★ milestone and pop when upgraded. Pumpjack, chimney smoke, flag and artillery animate.
+- Drag to pan between the base and the battlefield; the **Battle / Base** button jumps between them.
+  The enemy formation shows its power on a red badge.
+- Labels above every building: name, level, ★ tier, a ▲ badge when an upgrade is affordable, a lock
+  when not yet unlocked, **Build** when unlocked but not built.
+- Tap a building for its upgrade sheet: stats now → next, progress to the next ★, ×1/×10/Next★/Max
+  (remembered), cost chips that turn red when short, "Ready in …" countdown, and hold-to-repeat buying.
+- Top HUD: resource chips with net rates (only resources you have discovered), map/sector progress
+  dots, army vs. enemy power meter, settings.
+- "+N" numbers float up from producing buildings; toasts for sectors taken and new buildings; a
+  "Map conquered" card.
+- Welcome-back card with offline gains and the Warehouse cap explained.
+- Settings: "Skip 1 hour" for testing, and reset progress with an in-page confirmation.

@@ -8,3 +8,4 @@ export * from './progression';
 export * from './upgrades';
 export * from './game';
 export * from './save';
+export * from './describe';

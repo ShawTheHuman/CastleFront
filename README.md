@@ -4,7 +4,7 @@ A mobile idle army game. Build back-line production lines, turn their output int
 front line across ever-harder maps of NPC defenses. Every asset upgrades almost without limit; each new map
 raises the level cap by 100.
 
-Plan and roadmap: [docs/PLAN.md](docs/PLAN.md). Status: **phases 0–1 done** (scaffold + economy core).
+Plan and roadmap: [docs/PLAN.md](docs/PLAN.md). Status: **phases 0–2 done** (scaffold, economy core, base screen).
 
 ## Getting started
 
