@@ -42,24 +42,24 @@ Beating a map's HQ unlocks the next map, and with it **+100 to every asset's lev
 What the established games (AdVenture Capitalist, Cookie Clicker, Idle Miner Tycoon, Egg Inc., and the
 "army crowd" hybrid-casuals) have in common:
 
-| Mechanic | Typical implementation | Why it works |
-|---|---|---|
-| **Exponential cost** | `cost(L) = base × r^L`, with `r` ≈ 1.07–1.15 | Every upgrade is affordable eventually, and each one takes a bit longer than the last |
-| **Linear output + milestones** | `output = base × L × milestoneMult`, with output ×2 (or more) at levels 25/50/75/100… | Linear output falls behind exponential cost; milestones bring back a "power spike" and short-term goals |
-| **Hard level caps per tier** | Cap goes up only when you progress (a new map, mine or planet) | Stops grinding a single asset and pushes the player onward. This is the "100 per map" rule you described |
-| **Offline earnings** | Earn at X% of the online rate while away, capped at 2–12 h; doubled for watching an ad | The heart of "idle". Also the main ad-monetization hook |
-| **Big numbers** | Abbreviated values (1.2K, 3.4M, 5.6aa…) stored as mantissa/exponent | Plain doubles overflow near 1e308; the costs we're talking about get there |
-| **Soft prestige / meta currency** | A permanent multiplier earned at reset or at milestones | Keeps the game going after the curves flatten. Optional for us, since map caps already do much of this |
-| **Visible power vs. threat** | A number on every enemy group, compared against your army power | Makes the game readable at a glance; the reference ads lean on this heavily |
+| Mechanic                          | Typical implementation                                                                 | Why it works                                                                                             |
+| --------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **Exponential cost**              | `cost(L) = base × r^L`, with `r` ≈ 1.07–1.15                                           | Every upgrade is affordable eventually, and each one takes a bit longer than the last                    |
+| **Linear output + milestones**    | `output = base × L × milestoneMult`, with output ×2 (or more) at levels 25/50/75/100…  | Linear output falls behind exponential cost; milestones bring back a "power spike" and short-term goals  |
+| **Hard level caps per tier**      | Cap goes up only when you progress (a new map, mine or planet)                         | Stops grinding a single asset and pushes the player onward. This is the "100 per map" rule you described |
+| **Offline earnings**              | Earn at X% of the online rate while away, capped at 2–12 h; doubled for watching an ad | The heart of "idle". Also the main ad-monetization hook                                                  |
+| **Big numbers**                   | Abbreviated values (1.2K, 3.4M, 5.6aa…) stored as mantissa/exponent                    | Plain doubles overflow near 1e308; the costs we're talking about get there                               |
+| **Soft prestige / meta currency** | A permanent multiplier earned at reset or at milestones                                | Keeps the game going after the curves flatten. Optional for us, since map caps already do much of this   |
+| **Visible power vs. threat**      | A number on every enemy group, compared against your army power                        | Makes the game readable at a glance; the reference ads lean on this heavily                              |
 
 ### How fast the curves grow (cost multiplier relative to base)
 
-| r | Level 100 | Level 200 | Level 1000 (map 10) |
-|---|---|---|---|
-| 1.07 | 868× | 7.5e5× | 2.4e29× |
-| 1.10 | 1.4e4× | 1.9e8× | 2.5e41× |
-| 1.12 | 8.4e4× | 7.0e9× | 1.6e49× |
-| 1.15 | 1.2e6× | 1.4e12× | 5.0e60× |
+| r    | Level 100 | Level 200 | Level 1000 (map 10) |
+| ---- | --------- | --------- | ------------------- |
+| 1.07 | 868×      | 7.5e5×    | 2.4e29×             |
+| 1.10 | 1.4e4×    | 1.9e8×    | 2.5e41×             |
+| 1.12 | 8.4e4×    | 7.0e9×    | 1.6e49×             |
+| 1.15 | 1.2e6×    | 1.4e12×   | 5.0e60×             |
 
 So "almost unlimited" levels need a big-number type from day one. The recommendation is
 **break_infinity.js**, which is built for idle games, fast, and goes up to 1e9e15.
@@ -88,13 +88,13 @@ map takes roughly 1.3× as long as the one before.
 
 ### 3.1 Resources
 
-| Resource | Produced by | Main use |
-|---|---|---|
-| **Gold** | Battles, Mint/Market building, offline earnings | Universal upgrade currency |
-| **Food** | Farm | Infantry training |
-| **Steel** | Mine → Foundry (2-step chain) | Vehicles, fortifications |
-| **Fuel** | Oil Derrick → Refinery | Tanks, aircraft, missiles |
-| **Medals** (later) | Map completion, achievements | Permanent global multipliers (meta layer) |
+| Resource           | Produced by                                     | Main use                                  |
+| ------------------ | ----------------------------------------------- | ----------------------------------------- |
+| **Gold**           | Battles, Mint/Market building, offline earnings | Universal upgrade currency                |
+| **Food**           | Farm                                            | Infantry training                         |
+| **Steel**          | Mine → Foundry (2-step chain)                   | Vehicles, fortifications                  |
+| **Fuel**           | Oil Derrick → Refinery                          | Tanks, aircraft, missiles                 |
+| **Medals** (later) | Map completion, achievements                    | Permanent global multipliers (meta layer) |
 
 Production lines can be chained (raw → refined), which gives the back line a light "factory builder"
 feel. Each building in a chain is upgraded separately, so bottlenecks become decisions for the player.
@@ -145,11 +145,11 @@ formations.
 
 **Recommendation: TypeScript + Three.js, packaged with Capacitor for iOS and Android.**
 
-| Option | Pros | Cons |
-|---|---|---|
-| **TS + Three.js + Capacitor** ✅ | One codebase across web, iOS and Android. Fast iteration: testable in a browser and in CI. `InstancedMesh` handles thousands of low-poly units. Pure-TS simulation is easy to unit-test and to balance headlessly | Less built-in tooling than an engine. Native performance has a lower ceiling |
-| Unity | Industry standard for this genre. Great crowd rendering (GPU instancing/DOTS), ad/IAP SDKs | C# and a heavy editor, which can't be driven from this cloud environment. Slower iteration loop here |
-| Godot 4 | Free, lightweight, good mobile export | Weaker web/mobile 3D performance than Unity. Smaller ad/IAP ecosystem |
+| Option                           | Pros                                                                                                                                                                                                              | Cons                                                                                                 |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **TS + Three.js + Capacitor** ✅ | One codebase across web, iOS and Android. Fast iteration: testable in a browser and in CI. `InstancedMesh` handles thousands of low-poly units. Pure-TS simulation is easy to unit-test and to balance headlessly | Less built-in tooling than an engine. Native performance has a lower ceiling                         |
+| Unity                            | Industry standard for this genre. Great crowd rendering (GPU instancing/DOTS), ad/IAP SDKs                                                                                                                        | C# and a heavy editor, which can't be driven from this cloud environment. Slower iteration loop here |
+| Godot 4                          | Free, lightweight, good mobile export                                                                                                                                                                             | Weaker web/mobile 3D performance than Unity. Smaller ad/IAP ecosystem                                |
 
 If performance becomes the bottleneck later (10k+ animated units), the simulation core is engine-agnostic
 TS, so the economy and balance work carries over.
@@ -180,16 +180,16 @@ tools/
 
 ## 5. Roadmap
 
-| Phase | Goal | Deliverable |
-|---|---|---|
-| **0. Scaffold** | Clean repo, tooling | Vite + TS + Three.js, ESLint/Prettier, Vitest, CI |
-| **1. Economy core** | The math, tested | bignum, cost/output formulas, production chains, level caps, save/offline. **Balance simulator** with first pacing curves |
-| **2. Base screen** | A playable idle loop | Back-line buildings with upgrade buttons, resource HUD, number formatting, offline-earnings popup |
-| **3. Battle prototype** | The fun part | Portrait battlefield, instanced squads, commander + joystick, Charge pad, enemy formations with power labels, win/lose |
-| **4. Progression** | Long-term goals | Map 1 → map 2 transition, cap raise, sectors, auto-push idle mode |
-| **5. Spectacle** | Juice | Missile silo super weapon, explosions, scorch decals, screen shake, unit ragdoll "pop" |
-| **6. Content** | Breadth | 4–5 biomes, more unit types, airfield, missions |
-| **7. Mobile ship** | Release | Capacitor builds, ads (rewarded), IAP, analytics, performance pass on low-end Android |
+| Phase                   | Goal                 | Deliverable                                                                                                               |
+| ----------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **0. Scaffold**         | Clean repo, tooling  | Vite + TS + Three.js, ESLint/Prettier, Vitest, CI                                                                         |
+| **1. Economy core**     | The math, tested     | bignum, cost/output formulas, production chains, level caps, save/offline. **Balance simulator** with first pacing curves |
+| **2. Base screen**      | A playable idle loop | Back-line buildings with upgrade buttons, resource HUD, number formatting, offline-earnings popup                         |
+| **3. Battle prototype** | The fun part         | Portrait battlefield, instanced squads, commander + joystick, Charge pad, enemy formations with power labels, win/lose    |
+| **4. Progression**      | Long-term goals      | Map 1 → map 2 transition, cap raise, sectors, auto-push idle mode                                                         |
+| **5. Spectacle**        | Juice                | Missile silo super weapon, explosions, scorch decals, screen shake, unit ragdoll "pop"                                    |
+| **6. Content**          | Breadth              | 4–5 biomes, more unit types, airfield, missions                                                                           |
+| **7. Mobile ship**      | Release              | Capacitor builds, ads (rewarded), IAP, analytics, performance pass on low-end Android                                     |
 
 A vertical slice of phases 0–3 (one map, about 5 assets, one battle) is the first milestone worth
 playtesting.
@@ -205,3 +205,32 @@ playtesting.
 4. **Prestige/Medals:** include a meta-reset layer, or rely only on map caps?
 5. **Monetization:** rewarded ads + IAP cosmetics/boosts. Any no-go areas?
 6. **Art pipeline:** procedural low-poly in code at first, then commissioned or asset-store models?
+
+---
+
+## 7. Progress log
+
+### Phases 0–1 (done)
+
+- Scaffold: Vite + TypeScript (strict) + Three.js, ESLint, Prettier, Vitest, GitHub Actions CI.
+- Economy core in `src/core` (big numbers, costs and bulk buys ×1/×10/next milestone/max, production
+  chains with input throttling, level caps, army power, sectors/HQ, idle auto-push, offline
+  earnings, versioned saves). 44 unit tests.
+- Decisions taken: enemies are generated from a _reference army_ instead of hand-written numbers;
+  army upgrades are paid in food/steel/fuel, economy upgrades mostly in gold; each cleared sector
+  adds permanent gold/s; each conquered map multiplies all production by 12.
+
+First pacing from `npm run balance` (always-online optimal play, so real players are ~2–3× slower):
+
+| Map | Time on map | × previous |
+| --- | ----------- | ---------- |
+| 1   | 1d 0h       | –          |
+| 2   | 1d 19h      | 1.73       |
+| 3   | 1d 23h      | 1.10       |
+| 4   | 2d 11h      | 1.25       |
+| 5   | 3d 23h      | 1.62       |
+| 6   | 5d 8h       | 1.34       |
+| 8   | 13d 11h     | 1.74       |
+
+Known tuning items: the HQ is a large wall (about half of each map's time); the steel/fuel chain is the
+bottleneck while farms and barracks cap early; later maps slowly drift above the 1.3× target.
