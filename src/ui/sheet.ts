@@ -61,6 +61,7 @@ export class BuildingSheet {
   private mode: BuyMode = (storageGet(MODE_KEY) as BuyMode | null) ?? 'x1';
   private holdTimer = 0;
   private repeatTimer = 0;
+  private holding = false;
 
   constructor(
     private state: () => GameState,
@@ -91,19 +92,15 @@ export class BuildingSheet {
     this.buyBtn.append(this.buyLabel, this.buyCost);
     this.buyBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      this.purchase();
-      // Hold to keep buying.
-      this.holdTimer = window.setTimeout(() => {
-        this.repeatTimer = window.setInterval(() => this.purchase(), 90);
-      }, 400);
+      this.startHold();
     });
-    const stop = () => {
-      clearTimeout(this.holdTimer);
-      clearInterval(this.repeatTimer);
-    };
-    this.buyBtn.addEventListener('pointerup', stop);
-    this.buyBtn.addEventListener('pointerleave', stop);
-    this.buyBtn.addEventListener('pointercancel', stop);
+    // A release can happen anywhere, and a button that just became disabled never receives it,
+    // so listen on the window and stop on anything else that ends the gesture.
+    for (const type of ['pointerup', 'pointercancel', 'blur'] as const) {
+      window.addEventListener(type, () => this.stopHold());
+    }
+    document.addEventListener('visibilitychange', () => this.stopHold());
+    this.buyBtn.addEventListener('pointerleave', () => this.stopHold());
     this.buyBtn.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
@@ -121,7 +118,14 @@ export class BuildingSheet {
       this.buyBtn,
       this.eta,
     );
-    this.backdrop.onclick = () => this.close();
+    // Close only on a tap that starts on the backdrop. The tap that opened the sheet also
+    // produces a click, which lands on the freshly shown backdrop and must not close it.
+    let downOnBackdrop = false;
+    this.backdrop.addEventListener('pointerdown', () => (downOnBackdrop = true));
+    this.backdrop.addEventListener('click', () => {
+      if (downOnBackdrop) this.close();
+      downOnBackdrop = false;
+    });
     this.root.setAttribute('role', 'dialog');
   }
 
@@ -134,6 +138,7 @@ export class BuildingSheet {
   }
 
   open(assetId: string): void {
+    this.stopHold();
     this.assetId = assetId;
     this.root.classList.add('open');
     this.backdrop.classList.add('open');
@@ -141,24 +146,46 @@ export class BuildingSheet {
   }
 
   close(): void {
+    this.stopHold();
     this.assetId = null;
     this.root.classList.remove('open');
     this.backdrop.classList.remove('open');
+  }
+
+  /** Buy once now; keep buying every 90 ms while the press is held past 400 ms. */
+  private startHold(): void {
+    this.stopHold();
+    this.holding = true;
+    if (!this.purchase()) {
+      this.stopHold();
+      return;
+    }
+    this.holdTimer = window.setTimeout(() => {
+      if (!this.holding) return;
+      this.repeatTimer = window.setInterval(() => {
+        if (!this.holding || !this.purchase()) this.stopHold();
+      }, 90);
+    }, 400);
+  }
+
+  private stopHold(): void {
+    this.holding = false;
     clearTimeout(this.holdTimer);
     clearInterval(this.repeatTimer);
   }
 
-  private purchase(): void {
-    if (!this.assetId) return;
+  /** Buy with the current mode. Returns true if anything was bought. */
+  private purchase(): boolean {
+    if (!this.assetId) return false;
     const gained = buy(this.state(), this.assetId, this.mode);
     if (gained > 0) this.onBuy(this.assetId, gained);
     else {
-      clearInterval(this.repeatTimer);
       this.buyBtn.classList.remove('shake');
       void this.buyBtn.offsetWidth;
       this.buyBtn.classList.add('shake');
     }
     this.update();
+    return gained > 0;
   }
 
   update(): void {
