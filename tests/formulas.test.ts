@@ -12,7 +12,7 @@ import { getAsset } from '../src/data/assets';
 import { BALANCE } from '../src/data/balance';
 
 const farm = getAsset('farm');
-const foundry = getAsset('foundry');
+const range = getAsset('range'); // costs food and steel
 
 describe('output curve', () => {
   it('is zero at level 0 and doubles at each milestone', () => {
@@ -38,9 +38,28 @@ describe('costs', () => {
   });
 
   it('grows by costGrowth each level', () => {
-    const a = costForLevels(farm, 10, 1).gold!;
-    const b = costForLevels(farm, 11, 1).gold!;
+    const a = costForLevels(farm, 30, 1).gold!;
+    const b = costForLevels(farm, 31, 1).gold!;
     expect(b.div(a).toNumber()).toBeCloseTo(farm.costGrowth, 10);
+  });
+
+  it('discounts the first levels so the opening is quick', () => {
+    const d = BALANCE.earlyDiscountLevels;
+    const full = (l: number) => farm.cost.gold! * BALANCE.costScale * farm.costGrowth ** l;
+    expect(costForLevels(farm, 0, 1).gold!.toNumber()).toBeCloseTo(full(0) / d);
+    expect(costForLevels(farm, d - 1, 1).gold!.toNumber()).toBeCloseTo(full(d - 1));
+    // Bulk prices across the discount boundary still add up level by level.
+    let manual = 0;
+    for (let l = d - 5; l < d + 5; l++) manual += costForLevels(farm, l, 1).gold!.toNumber();
+    expect(costForLevels(farm, d - 5, 10).gold!.toNumber()).toBeCloseTo(manual, 6);
+  });
+
+  it('max affordable is exact across the discount boundary', () => {
+    const res = emptyResources();
+    res.gold = costForLevels(farm, 3, 40).gold!;
+    expect(maxAffordableLevels(farm, 3, res, 1000)).toBe(40);
+    res.gold = res.gold.sub(1);
+    expect(maxAffordableLevels(farm, 3, res, 1000)).toBe(39);
   });
 
   it('stays finite at very high levels', () => {
@@ -51,12 +70,12 @@ describe('costs', () => {
 
   it('maxAffordableLevels is exact and limited by the scarcest resource', () => {
     const res = emptyResources();
-    res.gold = D(1e9);
-    res.food = costForLevels(foundry, 5, 3).food!; // exactly 3 levels of food
-    expect(maxAffordableLevels(foundry, 5, res, 1000)).toBe(3);
+    res.steel = D(1e9);
+    res.food = costForLevels(range, 5, 3).food!; // exactly 3 levels of food
+    expect(maxAffordableLevels(range, 5, res, 1000)).toBe(3);
     res.food = res.food.sub(1);
-    expect(maxAffordableLevels(foundry, 5, res, 1000)).toBe(2);
+    expect(maxAffordableLevels(range, 5, res, 1000)).toBe(2);
     res.food = D(1e30);
-    expect(maxAffordableLevels(foundry, 5, res, 4)).toBe(4);
+    expect(maxAffordableLevels(range, 5, res, 4)).toBe(4);
   });
 });

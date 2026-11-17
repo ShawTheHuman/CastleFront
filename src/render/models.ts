@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
  * Procedural low-poly "toy" models built from primitives. Placeholder art: every model is a
@@ -94,10 +95,6 @@ function tank(color: number = COLORS.army): THREE.Group {
   return g;
 }
 
-function crate(x: number, z: number, s = 0.6): THREE.Mesh {
-  return box(s, s, s, COLORS.wood, x, 0.2, z);
-}
-
 type Builder = () => THREE.Group;
 
 const BUILDERS: Record<string, Builder> = {
@@ -159,53 +156,51 @@ const BUILDERS: Record<string, Builder> = {
     g.add(box(0.8, 0.3, 0.5, COLORS.steel, 1.3, 0.2, 1.4));
     return g;
   },
-  derrick() {
+  ranch() {
     const g = new THREE.Group();
-    g.add(pad(4.2, 4.2, COLORS.sand));
-    // Lattice tower.
-    for (const [x, z] of [
-      [-0.6, -0.6],
-      [0.6, -0.6],
-      [-0.6, 0.6],
-      [0.6, 0.6],
+    g.add(box(4.2, 0.2, 4.2, COLORS.field));
+    // Fenced pen.
+    for (const [x, z, w, d] of [
+      [0, -1.9, 4, 0.12],
+      [0, 1.9, 4, 0.12],
+      [-1.9, 0, 0.12, 3.8],
+      [1.9, 0, 0.12, 3.8],
     ] as const) {
-      const leg = box(0.15, 3.4, 0.15, COLORS.dark, x * 0.7, 0.2, z * 0.7 - 0.6);
-      g.add(leg);
+      g.add(box(w, 0.12, d, COLORS.wood, x, 0.55, z));
     }
-    g.add(box(1.1, 0.15, 1.1, COLORS.dark, 0, 1.5, -0.6));
-    g.add(box(0.5, 0.3, 0.5, COLORS.roofRed, 0, 3.6, -0.6));
-    // Pumpjack: the beam is animated (named).
-    g.add(box(0.3, 1, 0.3, COLORS.dark, 1.2, 0.2, 1.1));
-    const beam = new THREE.Group();
-    beam.name = 'pumpjack';
-    beam.position.set(1.2, 1.25, 1.1);
-    beam.add(box(0.25, 0.25, 1.8, COLORS.gold, 0, -0.12, 0));
-    beam.add(box(0.35, 0.5, 0.25, COLORS.gold, 0, -0.45, 0.9));
-    g.add(beam);
-    g.add(cyl(0.45, 0.6, COLORS.oil, -1.2, 0.2, 1.2));
+    g.add(box(1.4, 1.2, 1.2, COLORS.roofRed, -1, 0.2, -1.1));
+    g.add(roof(1.5, 0.7, 1.4, COLORS.white, -1, 1.4, -1.1));
+    // Cows.
+    for (const [x, z, r] of [
+      [0.6, 0.2, 0.3],
+      [-0.6, 1, -0.5],
+      [1.2, 1.2, 1.2],
+    ] as const) {
+      const cow = new THREE.Group();
+      cow.add(box(0.9, 0.5, 0.45, COLORS.white, 0, 0.45, 0));
+      cow.add(box(0.3, 0.3, 0.3, COLORS.black, 0.55, 0.7, 0));
+      cow.add(box(0.35, 0.2, 0.46, COLORS.black, -0.1, 0.75, 0));
+      for (const lx of [-0.3, 0.3])
+        for (const lz of [-0.15, 0.15]) cow.add(box(0.1, 0.45, 0.1, COLORS.dark, lx, 0, lz));
+      cow.position.set(x, 0.2, z);
+      cow.rotation.y = r;
+      g.add(cow);
+    }
     return g;
   },
-  refinery() {
+  bank() {
     const g = new THREE.Group();
     g.add(pad());
-    g.add(cyl(0.8, 1.8, COLORS.white, -0.9, 0.2, -0.7, 12));
-    g.add(cyl(0.6, 1.3, COLORS.white, 0.9, 0.2, -0.9, 12));
-    g.add(cyl(0.35, 3, COLORS.steel, 0.4, 0.2, 0.9, 8));
-    const pipe = box(2.4, 0.18, 0.18, COLORS.dark, 0, 1.4, 0.1);
-    g.add(pipe);
-    g.add(box(1, 0.6, 0.8, COLORS.army, -1.1, 0.2, 1.2)); // fuel drums
-    return g;
-  },
-  warehouse() {
-    const g = new THREE.Group();
-    g.add(pad());
-    g.add(box(3.4, 1.6, 2.6, COLORS.canvas, 0, 0.2, -0.4));
-    g.add(roof(3.5, 0.9, 2.8, COLORS.armyDark, 0, 1.8, -0.4));
-    g.add(box(1.2, 1.1, 0.1, COLORS.wood, 0, 0.2, 0.92));
-    g.add(crate(-1.4, 1.5));
-    g.add(crate(-0.8, 1.6, 0.5));
-    g.add(crate(1.3, 1.5));
-    g.add(crate(1.3, 1.5, 0.5).translateY(0.55));
+    g.add(box(3.4, 0.3, 2.6, COLORS.white, 0, 0.2, -0.3));
+    g.add(box(3, 1.6, 1.8, COLORS.concrete, 0, 0.5, -0.6));
+    for (let i = 0; i < 4; i++) g.add(cyl(0.16, 1.6, COLORS.white, -1.2 + i * 0.8, 0.5, 0.7, 8));
+    g.add(box(3.4, 0.25, 2.6, COLORS.white, 0, 2.1, -0.3));
+    g.add(roof(3.4, 0.7, 2.6, COLORS.white, 0, 2.35, -0.3));
+    const coin = mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.1, 16), COLORS.gold, 0, 2.6, 1);
+    coin.rotation.x = Math.PI / 2;
+    g.add(coin);
+    g.add(cyl(0.3, 0.3, COLORS.gold, -1.4, 0.2, 1.6));
+    g.add(cyl(0.3, 0.55, COLORS.gold, 1.4, 0.2, 1.6));
     return g;
   },
   commander() {
@@ -345,9 +340,57 @@ const RIVAL_SWAP = new Map<number, number>([
   [COLORS.armyDark, COLORS.enemyDark],
 ]);
 
+/** Named parts that animate, so they are kept as separate objects when merging. */
+const ANIMATED = new Set(['flag', 'plane', 'gun']);
+
+/**
+ * Merge every static mesh of a model into one mesh per material. A building drops from 10–30
+ * draw calls to a handful, which matters a lot on phones (and doubles again for shadows).
+ */
+function mergeStatic(g: THREE.Group): THREE.Group {
+  g.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(g.matrixWorld).invert();
+  const byMaterial = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  const merged: THREE.Mesh[] = [];
+  g.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    for (let p: THREE.Object3D | null = m; p && p !== g; p = p.parent)
+      if (ANIMATED.has(p.name)) return;
+    const geo = m.geometry
+      .clone()
+      .applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld));
+    const flat = geo.index ? geo.toNonIndexed() : geo;
+    for (const name of Object.keys(flat.attributes)) {
+      if (name !== 'position' && name !== 'normal') flat.deleteAttribute(name);
+    }
+    const mat = m.material as THREE.Material;
+    (byMaterial.get(mat) ?? byMaterial.set(mat, []).get(mat)!).push(flat);
+    merged.push(m);
+  });
+  for (const m of merged) m.parent?.remove(m);
+  // Drop groups left empty by the merge.
+  for (const child of [...g.children]) {
+    if (!(child as THREE.Mesh).isMesh && !ANIMATED.has(child.name) && child.children.length === 0) {
+      g.remove(child);
+    }
+  }
+  for (const [mat, geos] of byMaterial) {
+    const geo = mergeGeometries(geos);
+    if (!geo) continue;
+    const m = new THREE.Mesh(geo, mat);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    g.add(m);
+  }
+  return g;
+}
+
 export function buildingModel(assetId: string, side: Side = 'ours'): THREE.Group {
   const build = BUILDERS[assetId];
   const g = build ? build() : new THREE.Group().add(box(3, 2, 3, COLORS.concrete));
+  const smoke = g.getObjectByName('smoke-source');
+  if (smoke) g.userData.smokeAt = smoke.position.clone();
   if (side === 'rival') {
     g.traverse((o) => {
       const m = o as THREE.Mesh;
@@ -355,6 +398,9 @@ export function buildingModel(assetId: string, side: Side = 'ours'): THREE.Group
       const swap = RIVAL_SWAP.get((m.material as THREE.MeshLambertMaterial).color.getHex());
       if (swap !== undefined) m.material = mat(swap);
     });
+  }
+  mergeStatic(g);
+  if (side === 'rival') {
     // Mirror so the rival's buildings face the battlefield too.
     g.rotation.y = Math.PI;
   }
@@ -364,6 +410,10 @@ export function buildingModel(assetId: string, side: Side = 'ours'): THREE.Group
 
 /** An empty construction plot with a sign, for locked buildings. */
 export function lockedPlot(): THREE.Group {
+  return mergeStatic(buildPlot());
+}
+
+function buildPlot(): THREE.Group {
   const g = new THREE.Group();
   g.add(box(4.2, 0.12, 4.2, COLORS.sand));
   for (const [x, z] of [
@@ -398,6 +448,19 @@ export function sandbagWall(width: number, color: number = COLORS.canvas): THREE
     }
   }
   return g;
+}
+
+/** Tree parts as (geometry, material) pairs, for drawing many trees with instancing. */
+export function treeParts(): { geometry: THREE.BufferGeometry; material: THREE.Material }[] {
+  const g = tree();
+  g.updateMatrixWorld(true);
+  return g.children.map((c) => {
+    const m = c as THREE.Mesh;
+    return {
+      geometry: m.geometry.clone().applyMatrix4(m.matrixWorld),
+      material: m.material as THREE.Material,
+    };
+  });
 }
 
 export function tree(): THREE.Group {

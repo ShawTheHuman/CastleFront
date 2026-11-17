@@ -1,5 +1,5 @@
 import { D, Decimal } from './bignum';
-import { buyGreedy, aiBuildsAsset } from './ai';
+import { aiBuildsAsset, buyGreedy, cheapestUpgradeSeconds } from './ai';
 import { armyPowerFromLevels } from './army';
 import { netRates, tickEconomy } from './economy';
 import { levelCap } from './formulas';
@@ -13,7 +13,8 @@ import { BALANCE, TARGETS_PER_MAP } from '../data/balance';
  * The rival commander. On every map it starts with a copy of the player's base and then plays the
  * same economy (same buildings, costs and caps) with the same upgrade strategy as the balance
  * sim, at a handicapped speed: slow on early maps, faster on every map after. It also collects
- * the income of every outpost it still holds. Once every building is at the level cap it attacks.
+ * the income of every outpost it still holds. Once it hits the map's wall (its next upgrade would
+ * take too long) its base is finished: it stops building and attacks.
  */
 
 export const OUTPOSTS_PER_MAP = TARGETS_PER_MAP - 1;
@@ -45,6 +46,7 @@ export function newRival(levels: Record<string, number>, conquestGold: Decimal =
     conquestGold: D(conquestGold),
     pending: 0,
     nextAttackAt: 0,
+    done: false,
   };
 }
 
@@ -78,6 +80,10 @@ function rivalAsGame(state: GameState): GameState {
 /** Advance the rival by `dt` seconds of play: produce, then spend. */
 export function tickRival(state: GameState, dt: number): void {
   const r = state.rival;
+  if (r.done) {
+    r.pending = 0;
+    return;
+  }
   r.pending += dt * rivalPace(state.map) * rivalSpeed(state.sector);
   if (r.pending < RIVAL_STEP) return;
   const game = rivalAsGame(state);
@@ -86,6 +92,10 @@ export function tickRival(state: GameState, dt: number): void {
     tickEconomy(game, step);
     buyGreedy(game, 200);
     r.pending -= step;
+    if (checkRivalDone(state, game)) {
+      r.pending = 0;
+      break;
+    }
   }
 }
 
@@ -131,10 +141,21 @@ export function playerBuildFraction(state: GameState): number {
   return buildFraction(state.map, state.levels, state.rival.startLevels);
 }
 
-/** Every building at the level cap: the rival is ready to attack. */
+/** The rival has finished its base for this map: it stops building and attacks. */
 export function rivalIsFull(state: GameState): boolean {
-  const cap = levelCap(state.map);
-  return rivalAssets(state.map).every((a) => (state.rival.levels[a.id] ?? 0) >= cap);
+  return state.rival.done;
+}
+
+/** Decide whether the rival has hit its limit for this map. */
+function checkRivalDone(state: GameState, game: GameState): boolean {
+  if (state.rival.done) return true;
+  if (
+    rivalBuildFraction(state) >= BALANCE.rivalFinishFraction ||
+    cheapestUpgradeSeconds(game) > BALANCE.rivalPatienceMinutes * 60
+  ) {
+    state.rival.done = true;
+  }
+  return state.rival.done;
 }
 
 /** Fresh rival for a new map, starting from a copy of the player's base. */

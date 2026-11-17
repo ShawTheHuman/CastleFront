@@ -1,5 +1,13 @@
 import * as THREE from 'three';
-import { COLORS, buildingModel, lockedPlot, mat, sandbagWall, tree, type Side } from './models';
+import {
+  COLORS,
+  buildingModel,
+  lockedPlot,
+  mat,
+  sandbagWall,
+  treeParts,
+  type Side,
+} from './models';
 
 /**
  * The whole map in one scene, looking toward -z:
@@ -16,14 +24,13 @@ export const LAYOUT: Record<string, { x: number; z: number }> = {
   tankFactory: { x: -5, z: -1 },
   artillery: { x: 0, z: -1 },
   airfield: { x: 5, z: -1 },
-  // Back line.
+  // Back line: one column per resource (food, gold, steel), the stronger building behind.
   farm: { x: -5, z: 6 },
   market: { x: 0, z: 6 },
-  warehouse: { x: 5, z: 6 },
-  mine: { x: -5, z: 12 },
-  foundry: { x: 0, z: 12 },
-  derrick: { x: -5, z: 18 },
-  refinery: { x: 0, z: 18 },
+  mine: { x: 5, z: 6 },
+  ranch: { x: -5, z: 12 },
+  bank: { x: 0, z: 12 },
+  foundry: { x: 5, z: 12 },
 };
 
 const WALL_Z = -12;
@@ -33,7 +40,7 @@ const OUTPOST_FIRST_Z = -15.5;
 const OUTPOST_STEP = 2.2;
 const RIVAL_ARMY_Z = RIVAL_WALL_Z + 3;
 const PAN_MIN = 2 * MIRROR_Z - 4; // looking at the rival's base
-const PAN_MAX = 14;
+const PAN_MAX = 9;
 const VISIBLE_WIDTH = 17;
 const CAM_OFFSET = new THREE.Vector3(0, 26, 15);
 const MAX_UNITS = 300;
@@ -98,7 +105,7 @@ export class World {
 
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0xa7b9cc, 1.5));
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(1024, 1024);
     const sc = this.sun.shadow.camera;
     sc.left = -22;
     sc.right = 22;
@@ -161,10 +168,10 @@ export class World {
 
     for (const side of ['ours', 'rival'] as const) {
       const slab = new THREE.Mesh(
-        new THREE.BoxGeometry(17, 0.1, 32),
+        new THREE.BoxGeometry(17, 0.1, 26),
         mat(side === 'ours' ? 0xd9dee3 : 0xe3d6d3),
       );
-      slab.position.set(0, 0.05, side === 'ours' ? 6.5 : mirrorZ(6.5));
+      slab.position.set(0, 0.05, side === 'ours' ? 3.5 : mirrorZ(3.5));
       slab.receiveShadow = true;
       this.scene.add(slab);
     }
@@ -185,28 +192,36 @@ export class World {
     this.scene.add(rivalWall);
   }
 
+  /** Trees around both bases, drawn with instancing (3 draw calls for all of them). */
   private buildScenery(): void {
     let seed = 11;
     const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const spots: THREE.Matrix4[] = [];
+    const place = (x: number, z: number, scale: number) =>
+      spots.push(
+        new THREE.Matrix4().compose(
+          new THREE.Vector3(x, 0, z),
+          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand() * Math.PI),
+          new THREE.Vector3(scale, scale, scale),
+        ),
+      );
     for (let i = 0; i < 90; i++) {
       const side = i % 2 ? 1 : -1;
-      const t = tree();
-      t.position.set(side * (10 + rand() * 14), 0, -80 + rand() * 110);
-      t.scale.setScalar(0.8 + rand() * 0.7);
-      this.scene.add(t);
+      place(side * (10 + rand() * 14), -70 + rand() * 100, 0.8 + rand() * 0.7);
     }
-    // Fill the empty corner of each back line.
     for (const [x, z] of [
-      [4, 11.5],
-      [6, 13],
-      [4.5, 18],
-      [6.2, 19.5],
+      [4, 15.5],
+      [-4.5, 17],
+      [5.5, 17.5],
     ] as const) {
-      for (const zz of [z, mirrorZ(z)]) {
-        const t = tree();
-        t.position.set(x, 0, zz);
-        this.scene.add(t);
-      }
+      place(x, z, 1);
+      place(x, mirrorZ(z), 1);
+    }
+    for (const part of treeParts()) {
+      const inst = new THREE.InstancedMesh(part.geometry, part.material, spots.length);
+      spots.forEach((m, i) => inst.setMatrixAt(i, m));
+      inst.castShadow = true;
+      this.scene.add(inst);
     }
   }
 
@@ -230,13 +245,13 @@ export class World {
   }
 
   private makeSmoke(slot: Slot): THREE.Mesh[] {
-    const source = slot.model?.getObjectByName('smoke-source');
+    const source = slot.model?.userData.smokeAt as THREE.Vector3 | undefined;
     if (!source) return [];
     const puffs: THREE.Mesh[] = [];
     for (let i = 0; i < 4; i++) {
       const p = new THREE.Mesh(new THREE.SphereGeometry(0.35, 6, 5), mat(0xeceff1));
       p.userData.phase = i / 4;
-      p.userData.base = source.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+      p.userData.base = source.clone().add(new THREE.Vector3(0, 1.2, 0));
       slot.model!.add(p);
       puffs.push(p);
     }

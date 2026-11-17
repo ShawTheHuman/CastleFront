@@ -497,11 +497,11 @@ button:focus-visible {
   gap: 6px 12px;
   touch-action: manipulation;
 }
-.buy-btn:active:not(:disabled) {
+.buy-btn:active:not(.off) {
   transform: translateY(3px);
   box-shadow: 0 2px 0 var(--olive-deep);
 }
-.buy-btn:disabled {
+.buy-btn.off {
   background: var(--muted-btn);
   box-shadow: 0 5px 0 #a9aea5;
   color: var(--ink);
@@ -791,4 +791,36 @@ button:focus-visible {
 }
 .gain.foe b {
   color: var(--enemy);
+}
+
+/* ── Splash ────────────────────────────────────────────── */
+#splash {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  text-align: center;
+  background: var(--snow);
+  color: var(--ink);
+  transition: opacity 0.4s;
+}
+#splash.done {
+  opacity: 0;
+  pointer-events: none;
+}
+.splash-title {
+  font: 44px/1 var(--font-display);
+  letter-spacing: 0.03em;
+  color: var(--olive-deep);
+}
+.splash-note {
+  font-weight: 700;
+  color: var(--ink-soft);
+  max-width: 300px;
+  padding: 0 16px;
+}
+#splash.error .splash-note {
+  color: var(--enemy-deep);
 }

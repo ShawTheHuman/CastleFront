@@ -2,12 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   D,
   applyOffline,
-  armyPower,
   autoAdvance,
   buy,
   canClearCurrent,
   clearCurrent,
-  enemyPower,
+  outpostPower,
   levelCap,
   netRates,
   newGame,
@@ -78,15 +77,6 @@ describe('economy', () => {
     expect(s.resources.food.toNumber()).toBeCloseTo(food.mul(10).toNumber());
   });
 
-  it('converters are throttled by their input', () => {
-    const s = newGame(0);
-    s.levels.mine = 1; // 2 ore/s
-    s.levels.foundry = 50; // wants far more than 2 ore/s
-    tickEconomy(s, 100);
-    expect(s.resources.ore.toNumber()).toBe(0);
-    expect(s.resources.steel.toNumber()).toBeCloseTo(200 * 0.5);
-  });
-
   it('one long tick equals many short ones (offline is exact)', () => {
     const a = newGame(0);
     Object.assign(a.levels, {
@@ -94,8 +84,8 @@ describe('economy', () => {
       farm: 20,
       mine: 40,
       foundry: 60,
-      derrick: 10,
-      refinery: 5,
+      ranch: 10,
+      bank: 5,
     });
     const b = { ...a, resources: { ...a.resources }, levels: { ...a.levels } };
     tickEconomy(a, 3600);
@@ -111,15 +101,32 @@ describe('economy', () => {
 });
 
 describe('progression', () => {
-  it('enemy power never decreases across ten maps', () => {
-    let prev = D(0);
-    for (let m = 1; m <= 10; m++) {
-      for (let i = 0; i < TARGETS_PER_MAP; i++) {
-        const p = enemyPower(m, i);
-        expect(p.gte(prev), `map ${m} target ${i}`).toBe(true);
+  it('outposts get stronger along the road, on every map', () => {
+    for (const map of [1, 3, 7]) {
+      const s = newGame(0);
+      s.map = map;
+      for (const a of ASSETS) s.rival.startLevels[a.id] = a.line === 'front' ? (map - 1) * 90 : 0;
+      let prev = D(0);
+      for (let i = 0; i < TARGETS_PER_MAP - 1; i++) {
+        const p = outpostPower(s, i);
+        expect(p.gt(prev), `map ${map} outpost ${i}`).toBe(true);
         prev = p;
       }
     }
+  });
+
+  it('gaining the map step on every army building beats the last outpost', () => {
+    const s = newGame(0);
+    s.map = 3;
+    for (const a of ASSETS) s.rival.startLevels[a.id] = a.line === 'front' ? 190 : 0;
+    for (const a of ASSETS) {
+      s.levels[a.id] = a.line === 'front' ? 190 + BALANCE.outpostLevelsPerMap : 0;
+    }
+    s.sector = TARGETS_PER_MAP - 2;
+    expect(canClearCurrent(s)).toBe(true);
+    s.levels.barracks = 1;
+    s.levels.tankFactory = 1;
+    expect(canClearCurrent(s)).toBe(false);
   });
 
   it('a starting army beats the first target only after some upgrades', () => {
@@ -127,13 +134,6 @@ describe('progression', () => {
     expect(canClearCurrent(s)).toBe(false);
     s.levels.barracks = 10;
     expect(canClearCurrent(s)).toBe(true);
-  });
-
-  it('a reference-level army at the cap can beat each HQ', () => {
-    for (let m = 1; m <= 5; m++) {
-      const levels = Object.fromEntries(ASSETS.map((a) => [a.id, levelCap(m)]));
-      expect(armyPower({ levels }).gte(enemyPower(m, TARGETS_PER_MAP - 1))).toBe(true);
-    }
   });
 
   it('clearing the HQ moves to the next map and raises the cap', () => {
@@ -156,24 +156,16 @@ describe('progression', () => {
 });
 
 describe('offline earnings', () => {
-  it('applies efficiency and the warehouse cap', () => {
+  it('applies efficiency and the offline cap', () => {
     const s = newGame(0);
     s.levels.farm = 10;
     const hours = offlineCapHours(s);
-    expect(hours).toBe(2);
-    const r = applyOffline(s, 10 * 3600 * 1000); // 10h away
-    expect(r.creditedSeconds).toBe(2 * 3600);
-    expect(r.simulatedSeconds).toBe(2 * 3600 * BALANCE.offlineEfficiency);
+    expect(hours).toBe(BALANCE.offlineCapHours);
+    const r = applyOffline(s, (hours + 10) * 3600 * 1000);
+    expect(r.creditedSeconds).toBe(hours * 3600);
+    expect(r.simulatedSeconds).toBe(hours * 3600 * BALANCE.offlineEfficiency);
     expect(r.gains.food.gt(0)).toBe(true);
-    expect(s.lastUpdate).toBe(10 * 3600 * 1000);
-  });
-
-  it('a better warehouse holds more hours, up to its maximum', () => {
-    const s = newGame(0);
-    s.levels.warehouse = 8;
-    expect(offlineCapHours(s)).toBe(4);
-    s.levels.warehouse = 1000;
-    expect(offlineCapHours(s)).toBe(12);
+    expect(s.lastUpdate).toBe((hours + 10) * 3600 * 1000);
   });
 });
 

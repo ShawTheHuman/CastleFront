@@ -30,15 +30,38 @@ export function upgradeCost(asset: AssetDef, level: number): Partial<Record<Reso
   return costForLevels(asset, level, 1);
 }
 
-/** Total cost of buying `n` levels starting at `level`: Σ base × r^(level+i), i < n. */
+/**
+ * Price multiplier for the very first levels of a building, so the opening minutes are quick:
+ * level 0→1 costs 1/earlyDiscountLevels of full price, ramping linearly to full price.
+ */
+export function earlyDiscount(level: number): number {
+  const d = BALANCE.earlyDiscountLevels;
+  return level >= d ? 1 : (level + 1) / d;
+}
+
+/**
+ * Total cost of buying `n` levels starting at `level`: Σ base × r^(level+i) × discount, i < n.
+ * Discounted early levels are summed one by one; the rest is a geometric series.
+ */
 export function costForLevels(
   asset: AssetDef,
   level: number,
   n: number,
 ): Partial<Record<ResourceId, Decimal>> {
   const out: Partial<Record<ResourceId, Decimal>> = {};
+  const early = Math.max(0, Math.min(n, BALANCE.earlyDiscountLevels - level));
   for (const [res, base] of costEntries(asset)) {
-    out[res] = n <= 0 ? D(0) : Decimal.sumGeometricSeries(n, base, asset.costGrowth, level);
+    let sum = D(0);
+    for (let i = 0; i < early; i++) {
+      sum = sum.add(
+        D(asset.costGrowth)
+          .pow(level + i)
+          .mul(base * earlyDiscount(level + i)),
+      );
+    }
+    if (n > early)
+      sum = sum.add(Decimal.sumGeometricSeries(n - early, base, asset.costGrowth, level + early));
+    out[res] = sum;
   }
   return out;
 }
@@ -60,11 +83,21 @@ export function maxAffordableLevels(
   maxLevels: number,
 ): number {
   if (maxLevels <= 0) return 0;
-  let n = maxLevels;
-  for (const [res, base] of costEntries(asset)) {
-    const k = Decimal.affordGeometricSeries(resources[res], base, asset.costGrowth, level);
-    n = Math.min(n, Math.max(0, Math.floor(k.toNumber())));
+  // Step through discounted early levels one at a time, then solve the geometric part.
+  let n = 0;
+  while (n < maxLevels && level + n < BALANCE.earlyDiscountLevels) {
+    if (!canAfford(resources, costForLevels(asset, level, n + 1))) return n;
+    n++;
   }
+  if (n === maxLevels) return n;
+  const spent = costForLevels(asset, level, n);
+  let more = maxLevels - n;
+  for (const [res, base] of costEntries(asset)) {
+    const left = resources[res].sub(spent[res] ?? 0);
+    const k = Decimal.affordGeometricSeries(left, base, asset.costGrowth, level + n);
+    more = Math.min(more, Math.max(0, Math.floor(k.toNumber())));
+  }
+  n += more;
   // affordGeometricSeries works in floating point; correct any off-by-one.
   while (n > 0 && !canAfford(resources, costForLevels(asset, level, n))) n--;
   while (n < maxLevels && canAfford(resources, costForLevels(asset, level, n + 1))) n++;

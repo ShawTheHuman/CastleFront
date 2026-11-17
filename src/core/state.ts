@@ -4,7 +4,7 @@ import { ASSETS } from '../data/assets';
 import { TARGETS_PER_MAP } from '../data/balance';
 import { newRival } from './rival';
 
-export const STARTING_RESOURCES: Partial<Record<keyof Resources, number>> = { gold: 80 };
+export const STARTING_RESOURCES: Partial<Record<keyof Resources, number>> = { gold: 240 };
 
 export function emptyResources(): Resources {
   return Object.fromEntries(RESOURCE_IDS.map((r) => [r, D(0)])) as Resources;

@@ -115,17 +115,35 @@ describe('outposts and the final battle', () => {
 });
 
 describe('rival attacks', () => {
-  it('waits until every rival building is at the cap', () => {
+  it('attacks only once its base is finished', () => {
     const s = atBase();
     expect(rivalIsFull(s)).toBe(false);
     expect(checkRivalAttack(s)).toEqual([]);
+  });
+
+  it('finishes its base when it has built most of the map', () => {
+    const s = atBase();
     capAll(s.rival.levels, levelCap(1));
+    tickRival(s, 10);
     expect(rivalIsFull(s)).toBe(true);
+  });
+
+  it('finishes its base when its next upgrade would take too long', () => {
+    const s = atBase();
+    // Big buildings but no income: every upgrade takes forever.
+    for (const k of Object.keys(s.rival.levels)) s.rival.levels[k] = 0;
+    s.rival.levels.barracks = 60;
+    tickRival(s, 10);
+    expect(rivalIsFull(s)).toBe(true);
+    const power = rivalPower(s);
+    tickRival(s, 3600);
+    expect(rivalPower(s).eq(power)).toBe(true); // stopped building
   });
 
   it('a raid takes a share of the stores, capped by income, and comes back later', () => {
     const s = newGame(0);
     capAll(s.rival.levels, 100);
+    s.rival.done = true;
     s.levels.farm = 10;
     s.resources.food = D(1e9);
     s.resources.gold = D(100);
@@ -145,6 +163,7 @@ describe('rival attacks', () => {
   it('holding the line wins the whole map', () => {
     const s = newGame(0);
     capAll(s.rival.levels, 100);
+    s.rival.done = true;
     capAll(s.levels, 100);
     expect(armyPower(s).gte(rivalPower(s))).toBe(true);
     const events = checkRivalAttack(s);
@@ -159,7 +178,9 @@ describe('rival saves', () => {
     const s = newGame(0);
     tickRival(s, 3600);
     s.rival.nextAttackAt = 1234;
+    s.rival.done = true;
     const back = deserialize(serialize(s));
+    expect(back.rival.done).toBe(true);
     expect(back.rival.levels).toEqual(s.rival.levels);
     expect(back.rival.startLevels).toEqual(s.rival.startLevels);
     expect(back.rival.resources.gold.toString()).toBe(s.rival.resources.gold.toString());

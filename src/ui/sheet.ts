@@ -59,9 +59,6 @@ export class BuildingSheet {
   private eta = el('div', 'eta');
   private assetId: string | null = null;
   private mode: BuyMode = (storageGet(MODE_KEY) as BuyMode | null) ?? 'x1';
-  private holdTimer = 0;
-  private repeatTimer = 0;
-  private holding = false;
 
   constructor(
     private state: () => GameState,
@@ -90,23 +87,10 @@ export class BuildingSheet {
     }
 
     this.buyBtn.append(this.buyLabel, this.buyCost);
-    this.buyBtn.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      this.startHold();
-    });
-    // A release can happen anywhere, and a button that just became disabled never receives it,
-    // so listen on the window and stop on anything else that ends the gesture.
-    for (const type of ['pointerup', 'pointercancel', 'blur'] as const) {
-      window.addEventListener(type, () => this.stopHold());
-    }
-    document.addEventListener('visibilitychange', () => this.stopHold());
-    this.buyBtn.addEventListener('pointerleave', () => this.stopHold());
-    this.buyBtn.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        this.purchase();
-      }
-    });
+    // One tap, one purchase. The button is never `disabled`: some mobile browsers stop
+    // delivering touch events to a button that becomes disabled under the finger, which is how
+    // purchases used to get stuck. It is styled as unavailable with aria-disabled instead.
+    this.buyBtn.addEventListener('click', () => this.purchase());
 
     this.root.append(
       head,
@@ -138,7 +122,6 @@ export class BuildingSheet {
   }
 
   open(assetId: string): void {
-    this.stopHold();
     this.assetId = assetId;
     this.root.classList.add('open');
     this.backdrop.classList.add('open');
@@ -146,32 +129,9 @@ export class BuildingSheet {
   }
 
   close(): void {
-    this.stopHold();
     this.assetId = null;
     this.root.classList.remove('open');
     this.backdrop.classList.remove('open');
-  }
-
-  /** Buy once now; keep buying every 90 ms while the press is held past 400 ms. */
-  private startHold(): void {
-    this.stopHold();
-    this.holding = true;
-    if (!this.purchase()) {
-      this.stopHold();
-      return;
-    }
-    this.holdTimer = window.setTimeout(() => {
-      if (!this.holding) return;
-      this.repeatTimer = window.setInterval(() => {
-        if (!this.holding || !this.purchase()) this.stopHold();
-      }, 90);
-    }, 400);
-  }
-
-  private stopHold(): void {
-    this.holding = false;
-    clearTimeout(this.holdTimer);
-    clearInterval(this.repeatTimer);
   }
 
   /** Buy with the current mode. Returns true if anything was bought. */
@@ -246,7 +206,8 @@ export class BuildingSheet {
     this.note.hidden = !note;
 
     this.buyBtn.hidden = !!req || q.blocked === 'capped';
-    this.buyBtn.disabled = !q.affordable;
+    this.buyBtn.setAttribute('aria-disabled', String(!q.affordable));
+    this.buyBtn.classList.toggle('off', !q.affordable);
     setText(this.buyLabel, lvl === 0 ? 'Build' : `Upgrade +${q.levels}`);
     this.buyCost.replaceChildren(
       ...(Object.entries(q.cost) as [ResourceId, Decimal][]).map(([r, amt]) => {

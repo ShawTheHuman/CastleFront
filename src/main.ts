@@ -40,7 +40,7 @@ import { BuildingSheet } from './ui/sheet';
 
 const SIM_STEP = 0.1; // seconds per simulation step
 const SAVE_EVERY = 5; // seconds
-const FLOAT_EVERY = 3; // seconds between "+N" popups
+const FLOAT_EVERY = 5; // seconds between "+N" popups
 
 function load(): GameState {
   const raw = localSaveStorage.load();
@@ -59,7 +59,22 @@ const persist = () => localSaveStorage.store(serialize(state));
 // ── Scene and UI ────────────────────────────────────────────────────────
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const ui = document.getElementById('hud')!;
-const world = new World(canvas);
+const world = createWorld();
+
+/** The 3D view, or a plain explanation if this device can't run it. */
+function createWorld(): World {
+  try {
+    return new World(canvas);
+  } catch (e) {
+    const splash = document.getElementById('splash');
+    if (splash) {
+      splash.classList.add('error');
+      splash.querySelector('.splash-note')!.textContent =
+        'This device could not start 3D graphics (WebGL). Try another browser, or turn on hardware acceleration.';
+    }
+    throw e;
+  }
+}
 const labels = new Labels(world);
 const top = new TopHud();
 const sheet = new BuildingSheet(
@@ -268,7 +283,12 @@ function list(items: (string | HTMLElement)[]): HTMLElement {
 }
 
 function showOffline(r: OfflineReport): void {
-  if (r.creditedSeconds < 60) return;
+  if (r.awaySeconds < 60) return handleEvents(r.events, true);
+  if (r.awaySeconds < 5 * 60) {
+    // A quick app switch: no card, just a note.
+    toast(`Welcome back! +${formatNumber(r.gains.gold)} ${ICON.gold}`, 'info');
+    return handleEvents(r.events, true);
+  }
   const gains = (Object.entries(r.gains) as [ResourceId, Decimal][])
     .filter(([, v]) => v.gt(0))
     .map(([res, v]) => {
@@ -287,16 +307,15 @@ function showOffline(r: OfflineReport): void {
     [
       para(
         `You were away ${formatDuration(r.awaySeconds)}. Your base kept working at ${Math.round(BALANCE.offlineEfficiency * 100)}% speed` +
-          (capped
-            ? ` for ${formatDuration(r.creditedSeconds)}, the most the Warehouse can hold.`
-            : '.'),
+          (capped ? ` for ${formatDuration(r.creditedSeconds)}, the most it can store.` : '.'),
       ),
       list(gains),
       ...(sectors
-        ? [para(`Your army took ${sectors} sector${sectors > 1 ? 's' : ''} while you were gone.`)]
+        ? [para(`Your army took ${sectors} outpost${sectors > 1 ? 's' : ''} while you were gone.`)]
         : []),
     ],
     [{ label: 'Collect' }],
+    'offline',
   );
   handleEvents(r.events, true);
 }
@@ -333,6 +352,7 @@ top.settingsButton.onclick = () => {
       },
       { label: 'Close' },
     ],
+    'settings',
   );
 };
 
@@ -344,6 +364,7 @@ let acc = 0;
 let saveAcc = 0;
 let uiAcc = 1;
 let floatAcc = 0;
+let hudBottom = 0;
 let last = performance.now();
 
 function floatProduction(): void {
@@ -358,11 +379,6 @@ function floatProduction(): void {
         levelOutput(e.base, lvl).mul(mult).mul(FLOAT_EVERY),
         ICON[e.resource],
       );
-    } else if (e.kind === 'convert' && state.resources[e.input].gt(0)) {
-      const made = levelOutput(e.base, lvl)
-        .mul(mult)
-        .mul(e.ratio * FLOAT_EVERY);
-      labels.floatAmount(a.id, made, ICON[e.output]);
     }
   }
 }
@@ -383,6 +399,7 @@ function frame(now: number): void {
   if (uiAcc >= 0.25) {
     uiAcc = 0;
     top.update(state, world.view);
+    hudBottom = top.root.getBoundingClientRect().bottom;
     labels.refresh(state, currentEnemyPower(state), isHQ(state.sector));
     const built = rivalBuildFraction(state);
     if (warnedRival < 0.9 && built >= 0.9 && !rivalIsFull(state)) {
@@ -410,8 +427,17 @@ function frame(now: number): void {
     state.sector,
     isHQ(state.sector),
   );
-  labels.place();
+  labels.place(hudBottom);
   requestAnimationFrame(frame);
+
+  // Hide the splash once the first frames have drawn and the fonts are in (or after 3 s at most).
+  Promise.race([
+    Promise.all([
+      document.fonts?.ready ?? Promise.resolve(),
+      new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+    ]),
+    new Promise((r) => setTimeout(r, 3000)),
+  ]).then(() => document.getElementById('splash')?.classList.add('done'));
 }
 requestAnimationFrame(frame);
 
@@ -426,6 +452,10 @@ Object.assign(window, {
   cf: {
     get state() {
       return state;
+    },
+    /** Draw calls and triangles of the last frame. */
+    get render() {
+      return { ...world.renderer.info.render };
     },
     reset() {
       state = newGame();

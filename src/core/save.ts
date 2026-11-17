@@ -4,7 +4,7 @@ import { newGame } from './state';
 import { RESOURCE_IDS, type GameState } from './types';
 import { ASSETS } from '../data/assets';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 interface SaveFileV1 {
   version: 1;
@@ -31,12 +31,18 @@ interface SaveFileV2 extends Omit<SaveFileV1, 'version' | 'state'> {
       conquestGold: string;
       pending: number;
       nextAttackAt: number;
+      done?: boolean;
     } | null;
     assaultReadyAt: number;
   };
 }
 
-type AnySave = SaveFileV2;
+/** v3: three resources (gold, food, steel); ore/crude/fuel and the converter buildings are gone. */
+interface SaveFileV3 extends Omit<SaveFileV2, 'version'> {
+  version: 3;
+}
+
+type AnySave = SaveFileV3;
 
 /** Migrations from version N to N+1. Add one entry per SAVE_VERSION bump. */
 const MIGRATIONS: Record<number, (save: unknown) => unknown> = {
@@ -49,10 +55,14 @@ const MIGRATIONS: Record<number, (save: unknown) => unknown> = {
       state: { ...s.state, rival: null, assaultReadyAt: 0 },
     } satisfies SaveFileV2;
   },
+  // v3 drops ore, crude oil and fuel and the Oil Derrick, Refinery and Warehouse. Loading ignores
+  // unknown resources and buildings, so only the version changes. The Foundry and Iron Mine keep
+  // their levels and now make steel directly.
+  2: (save) => ({ ...(save as SaveFileV2), version: 3 }),
 };
 
 export function serialize(state: GameState, now = Date.now()): string {
-  const file: SaveFileV2 = {
+  const file: SaveFileV3 = {
     version: SAVE_VERSION,
     savedAt: now,
     state: {
@@ -72,6 +82,7 @@ export function serialize(state: GameState, now = Date.now()): string {
         conquestGold: state.rival.conquestGold.toString(),
         pending: state.rival.pending,
         nextAttackAt: state.rival.nextAttackAt,
+        done: state.rival.done,
       },
       assaultReadyAt: state.assaultReadyAt,
     },
@@ -142,6 +153,7 @@ export function deserialize(json: string): GameState {
     if (typeof r.conquestGold === 'string') state.rival.conquestGold = D(r.conquestGold);
     if (isNum(r.pending) && r.pending >= 0) state.rival.pending = r.pending;
     if (isNum(r.nextAttackAt)) state.rival.nextAttackAt = r.nextAttackAt;
+    if (r.done === true) state.rival.done = true;
   }
   for (const r of RESOURCE_IDS) {
     if (!Number.isFinite(state.resources[r].mantissa)) throw new SaveError(`Bad resource ${r}`);

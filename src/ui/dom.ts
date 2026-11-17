@@ -14,10 +14,7 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 export const ICON: Record<ResourceId, string> = {
   gold: '🪙',
   food: '🌾',
-  ore: '🪨',
   steel: '🔩',
-  crude: '🛢️',
-  fuel: '⛽',
 };
 
 /** Set text only when it changed (avoids layout work at 4 Hz). */

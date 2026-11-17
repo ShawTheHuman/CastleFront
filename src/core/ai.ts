@@ -10,8 +10,8 @@ import { ASSETS } from '../data/assets';
  * levels buildings evenly, the way an attentive player does.
  */
 
-/** Assets the AI never buys (no effect on strength while always online). */
-const AI_SKIP = new Set(['warehouse']);
+/** Assets the AI never buys. */
+const AI_SKIP = new Set<string>();
 
 function secondsOfIncome(state: GameState, cost: Partial<Record<ResourceId, Decimal>>): number {
   const rates = netRates(state);
@@ -39,6 +39,18 @@ export function buyGreedy(state: GameState, maxBuys = 10_000): number {
     buy(state, best.id, 'x1');
   }
   return bought;
+}
+
+/** Seconds of current income the cheapest next upgrade costs (Infinity if none is possible). */
+export function cheapestUpgradeSeconds(state: GameState): number {
+  let best = Infinity;
+  for (const a of ASSETS) {
+    if (AI_SKIP.has(a.id) || !isUnlocked(state, a)) continue;
+    const q = quote(state, a.id, 'x1');
+    if (q.blocked === 'capped' || q.blocked === 'locked') continue;
+    best = Math.min(best, secondsOfIncome(state, q.cost));
+  }
+  return best;
 }
 
 export function aiBuildsAsset(assetId: string): boolean {

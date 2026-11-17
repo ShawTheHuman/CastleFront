@@ -17,18 +17,10 @@ describe('describe helpers', () => {
     expect(describeEffect(s, 'farm', 1)).toEqual([{ label: 'Food made', now: '2/s', next: '4/s' }]);
   });
 
-  it('shows both sides of a converter', () => {
+  it('shows army power and the commander multiplier', () => {
     const s = newGame(0);
-    s.levels.foundry = 2;
-    const lines = describeEffect(s, 'foundry', 1);
-    expect(lines.map((l) => l.label)).toEqual(['Ore used', 'Steel made']);
-    expect(lines[1]).toMatchObject({ now: '2/s', next: '3/s' });
-  });
-
-  it('shows the commander multiplier and warehouse hours', () => {
-    const s = newGame(0);
+    expect(describeEffect(s, 'barracks', 1)[0]).toMatchObject({ now: '10', next: '20' });
     expect(describeEffect(s, 'commander', 1)[0]).toMatchObject({ now: '×1.05', next: '×1.1' });
-    expect(describeEffect(s, 'warehouse', 2)[0]).toMatchObject({ now: '2h', next: '2.5h' });
   });
 
   it('finds the next milestone', () => {
@@ -38,23 +30,24 @@ describe('describe helpers', () => {
   });
 
   it('names targets and unlock requirements', () => {
-    expect(targetName(0)).toBe('Map 1 · Sector 1');
-    expect(targetName(8)).toBe('Map 1 HQ');
-    expect(targetName(9)).toBe('Map 2 · Sector 1');
+    expect(targetName(0)).toBe('Map 1 · Outpost 1');
+    expect(targetName(8)).toBe('the Map 1 rival base');
+    expect(targetName(9)).toBe('Map 2 · Outpost 1');
     const s = newGame(0);
     expect(unlockRequirement(s, getAsset('farm'))).toBeNull();
-    expect(unlockRequirement(s, getAsset('mine'))).toBe('Beat Map 1 · Sector 1');
-    expect(unlockRequirement(s, getAsset('airfield'))).toBe('Beat Map 1 HQ');
+    expect(unlockRequirement(s, getAsset('mine'))).toBe('Beat Map 1 · Outpost 1');
+    expect(unlockRequirement(s, getAsset('airfield'))).toBe('Beat the Map 1 rival base');
   });
 
   it('only shows resources the player can know about', () => {
     const s = newGame(0);
     expect(discoveredResources(s)).toEqual(['gold', 'food']);
     s.sector = 1;
-    expect(discoveredResources(s)).toEqual(['gold', 'food', 'ore', 'steel']);
+    expect(discoveredResources(s)).toEqual(['gold', 'food', 'steel']);
   });
 
   it('lists unlocks by progress', () => {
-    expect(assetsUnlockedBy(1).map((a) => a.id)).toEqual(['mine', 'foundry']);
+    expect(assetsUnlockedBy(1).map((a) => a.id)).toEqual(['mine']);
+    expect(assetsUnlockedBy(3).map((a) => a.id)).toEqual(['foundry', 'tankFactory']);
   });
 });

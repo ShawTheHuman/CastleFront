@@ -88,24 +88,25 @@ map takes roughly 1.3× as long as the one before.
 
 ### 3.1 Resources
 
-| Resource           | Produced by                                     | Main use                                  |
-| ------------------ | ----------------------------------------------- | ----------------------------------------- |
-| **Gold**           | Battles, Mint/Market building, offline earnings | Universal upgrade currency                |
-| **Food**           | Farm                                            | Infantry training                         |
-| **Steel**          | Mine → Foundry (2-step chain)                   | Vehicles, fortifications                  |
-| **Fuel**           | Oil Derrick → Refinery                          | Tanks, aircraft, missiles                 |
-| **Medals** (later) | Map completion, achievements                    | Permanent global multipliers (meta layer) |
+Three resources, each made by two buildings: a cheap one from the start and a stronger one unlocked
+later. (Simplified after playtesting: the original ore → steel and crude → fuel chains and the
+Warehouse were cut.)
 
-Production lines can be chained (raw → refined), which gives the back line a light "factory builder"
-feel. Each building in a chain is upgraded separately, so bottlenecks become decisions for the player.
+| Resource  | Made by                         | Spent on                                    |
+| --------- | ------------------------------- | ------------------------------------------- |
+| **Gold**  | Market, Bank; captured outposts | Economy buildings, Commander, tanks, planes |
+| **Food**  | Farm, Ranch                     | Barracks, Rifle Range, Artillery            |
+| **Steel** | Iron Mine, Foundry              | Rifle Range, tanks, Artillery, Airfield     |
+
+Offline earnings run at 50% speed for up to 8 hours away.
 
 ### 3.2 Upgradeable assets
 
 Every asset has the same set of stats: `level`, `baseCost` (per resource), `costGrowth r`, `baseOutput`,
-and `milestones`.
+and `milestones`. The first 20 levels of every building are discounted (level 1 at 1/20 of the price)
+so the opening minutes are quick.
 
-**Back line (economy):** Farm, Mine, Foundry, Oil Derrick, Refinery, Market, Warehouse (raises
-the offline cap).
+**Back line (economy):** Market and Bank (gold), Farm and Ranch (food), Iron Mine and Foundry (steel).
 
 **Front line (army):**
 
@@ -276,14 +277,36 @@ far side of the battlefield.
   Tap a rival building to compare it with yours.
 - Because both sides are capped at the same level, maxing out always wins the final battle.
 
+### Gameplay review (after the rival race)
+
+Playtest findings and what changed:
+
+- **Stuck buttons.** The upgrade button used hold-to-repeat and was disabled when unaffordable; some
+  phones stop sending touch events to a button that becomes disabled under the finger, so the
+  repeat never stopped. Now one tap is one purchase (use ×10 / Next ★ / Max for bulk), and the
+  button is styled as unavailable instead of disabled. Pop-ups queue one at a time and a second
+  "welcome back" can no longer stack on the first; short app switches show a toast instead.
+- **Slow loading.** Buildings were 10–30 meshes each and trees 3 each (≈450 draw calls a frame,
+  more with shadows). Static parts are now merged per material and trees are instanced (≈210
+  draw calls), the shadow map is smaller, a splash screen covers the first frames, and a device
+  without WebGL gets a message instead of a blank page.
+- **Too much going on.** Three resources instead of six; no converter chains or Warehouse; fewer
+  floating numbers; labels hide under the top panel.
+- **Slow opening.** The first 20 levels of every building are discounted, so the first outpost
+  falls in under a minute.
+- **Balance.** Every building's price grows ×1.075 per level and each conquered map multiplies
+  production by 18, so maps keep a similar length. Outposts are sized from the player's own army
+  at the start of the map (+75 levels at the last outpost), so a slower player never faces a
+  compounding gap. The rival finishes its base when its next upgrade would take 20 minutes of its
+  income (or at 90% built), then attacks.
+
 Pacing from `npm run balance` (pace 1 = attentive player; `--pace 0.5` = half as efficient):
 
-| Map | Pace 1: time | Rival built | Pace 0.5: time | Rival built |
-| --- | ------------ | ----------- | -------------- | ----------- |
-| 1   | 11h 50m      | 58%         | 1d 23h         | 75%         |
-| 3   | 17h 51m      | 61%         | 2d 4h          | 66%         |
-| 5   | 1d 4h        | 56%         | 4d 4h          | 61%         |
-| 7   | 2d 21h       | 54%         | 15d 10h        | 58%         |
-
-Open tuning items: an attentive player is still gated by the outposts rather than the rival until
-about map 6; rivals faster than the player (map 8+) have not been checked for raid frequency.
+| Map | Pace 1: time | Rival built | Pace 0.5: time | Raids |
+| --- | ------------ | ----------- | -------------- | ----- |
+| 1   | 7h 28m       | 51%         | 1d 14h         | 0     |
+| 2   | 9h 40m       | 49%         | 3d 16h         | 2     |
+| 3   | 8h 42m       | 43%         | 5d 8h          | 4     |
+| 4   | 8h 08m       | 39%         | 5d 22h         | 8     |
+| 6   | 12h 06m      | 35%         | 5d 9h          | 10    |
+| 8   | 22h 44m      | 30%         | –              | –     |

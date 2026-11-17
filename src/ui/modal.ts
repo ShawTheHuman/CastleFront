@@ -8,12 +8,37 @@ export interface ModalAction {
   keepOpen?: boolean;
 }
 
-/** A centred card over a dimmed screen. Returns a function that closes it. */
+interface Pending {
+  key?: string;
+  open: () => void;
+}
+
+const queue: Pending[] = [];
+let current: { key?: string } | null = null;
+
+/**
+ * A centred card over a dimmed screen. Only one is shown at a time; later ones wait their turn.
+ * A modal with a `key` is dropped if one with the same key is already showing or waiting (so
+ * e.g. switching apps twice can't stack two "welcome back" cards).
+ */
 export function showModal(
   title: string,
   body: (Node | string)[],
   actions: ModalAction[],
-): () => void {
+  key?: string,
+): void {
+  if (key && (current?.key === key || queue.some((q) => q.key === key))) return;
+  queue.push({ key, open: () => render(title, body, actions) });
+  if (!current) next();
+}
+
+function next(): void {
+  const item = queue.shift();
+  current = item ? { key: item.key } : null;
+  item?.open();
+}
+
+function render(title: string, body: (Node | string)[], actions: ModalAction[]): void {
   const backdrop = el('div', 'modal-backdrop');
   const card = el('div', 'modal');
   card.setAttribute('role', 'dialog');
@@ -22,20 +47,24 @@ export function showModal(
   const content = el('div', 'modal-body');
   content.append(...body);
   const row = el('div', 'modal-actions');
-  const close = () => backdrop.remove();
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    backdrop.remove();
+    next();
+  };
   for (const a of actions) {
     const b = el('button', `btn ${a.kind ?? 'primary'}`, a.label);
-    b.onclick = () => {
+    b.addEventListener('click', () => {
       a.onClick?.();
       if (!a.keepOpen) close();
-    };
+    });
     row.append(b);
   }
   card.append(h, content, row);
   backdrop.append(card);
   document.body.append(backdrop);
-  (row.querySelector('button') as HTMLButtonElement | null)?.focus();
-  return close;
 }
 
 let toastHost: HTMLElement | null = null;

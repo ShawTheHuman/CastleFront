@@ -2,7 +2,7 @@ import { D, type Decimal } from './bignum';
 import { armyPower, armyPowerFromLevels } from './army';
 import { productionMultiplier } from './economy';
 import { levelCap, levelOutput } from './formulas';
-import { targetLevel, targetLevelAtProgress } from './ladder';
+import { targetLevel } from './ladder';
 import { raidLoss, resetRival, rivalIsFull, rivalPower } from './rival';
 import type { GameState, ResourceId } from './types';
 import { ASSETS } from '../data/assets';
@@ -10,20 +10,19 @@ import { BALANCE, TARGETS_PER_MAP } from '../data/balance';
 
 /**
  * Each map has `sectorsPerMap` enemy outposts on the road between the bases, then the rival's
- * base. Outposts have fixed strength, sized against a "reference army" (every unlocked army
- * building at the same level), and fall automatically once the army is strong enough. The base
- * is defended by the rival's live army, and the player decides when to assault it.
+ * base. Outposts fall automatically once the army is strong enough; the player decides when to
+ * assault the base, which is defended by the rival's live army.
+ *
+ * An outpost's garrison is the player's own army as it stood when the map began, with every army
+ * building `outpostLevels(index)` levels higher (buildings unlocked during the map lag by the
+ * levels already added when they unlocked). Sizing outposts from the player's real army means a
+ * slower player is never asked for more than the map's step, so gaps can't snowball across maps.
  */
 
-function referenceLevels(map: number, index: number): Record<string, number> {
-  const progress = (map - 1) * TARGETS_PER_MAP + index;
-  const lvl = Math.min(targetLevel(map, index), levelCap(map));
-  return Object.fromEntries(
-    ASSETS.filter((a) => a.unlockProgress <= progress).map((a) => [
-      a.id,
-      Math.max(0, lvl - targetLevelAtProgress(a.unlockProgress)),
-    ]),
-  );
+/** Extra levels over the map's starting army that outpost `index` (0-based) represents. */
+export function outpostLevels(index: number): number {
+  const frac = Math.pow((index + 1) / BALANCE.sectorsPerMap, BALANCE.sectorCurve);
+  return Math.max(1, Math.round(BALANCE.outpostLevelsPerMap * frac));
 }
 
 /** True for the last target on a map: the rival's base. */
@@ -31,9 +30,24 @@ export function isHQ(index: number): boolean {
   return index === TARGETS_PER_MAP - 1;
 }
 
-/** Fixed strength of an outpost (for the base, the reference strength it was tuned against). */
-export function enemyPower(map: number, index: number): Decimal {
-  return armyPowerFromLevels(referenceLevels(map, index)).mul(BALANCE.enemyPowerFactor);
+/** Army levels of the garrison at outpost `index` on the current map. */
+export function outpostGarrison(state: GameState, index: number): Record<string, number> {
+  const mapStart = (state.map - 1) * TARGETS_PER_MAP;
+  const cap = levelCap(state.map);
+  const start = state.rival.startLevels; // the player's levels when the map began
+  const levels: Record<string, number> = {};
+  for (const a of ASSETS) {
+    if (a.line !== 'front' || a.unlockProgress > mapStart + index) continue;
+    const unlockedAt = a.unlockProgress - mapStart; // outposts taken when it unlocked
+    const lag = unlockedAt > 0 ? outpostLevels(unlockedAt - 1) : 0;
+    levels[a.id] = Math.min(cap, (start[a.id] ?? 0) + Math.max(0, outpostLevels(index) - lag));
+  }
+  return levels;
+}
+
+/** Strength of outpost `index` on the current map. */
+export function outpostPower(state: GameState, index: number): Decimal {
+  return armyPowerFromLevels(outpostGarrison(state, index)).mul(BALANCE.enemyPowerFactor);
 }
 
 /** Permanent gold/s added when this target is taken. */
@@ -51,7 +65,7 @@ export function sectorBounty(map: number, index: number): Decimal {
 
 /** Strength of whatever the army faces next: an outpost, or the rival's live army. */
 export function currentEnemyPower(state: GameState): Decimal {
-  return isHQ(state.sector) ? rivalPower(state) : enemyPower(state.map, state.sector);
+  return isHQ(state.sector) ? rivalPower(state) : outpostPower(state, state.sector);
 }
 
 /** Whether the army would take the next outpost on its own (never true for the base). */

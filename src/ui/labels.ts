@@ -77,16 +77,22 @@ export class Labels {
     this.rivalSeen.clear();
   }
 
-  /** Reposition labels (every frame, after the camera moves). */
-  place(): void {
+  /**
+   * Reposition labels (every frame, after the camera moves). Labels that would sit under the top
+   * HUD (above `hudBottom` px) are hidden rather than showing through it.
+   */
+  place(hudBottom = 0): void {
+    this.hudBottom = hudBottom;
     for (const [id, l] of this.ours) this.position(l.root, this.world.anchor('ours', id));
     for (const [id, l] of this.rival) this.position(l.root, this.world.anchor('rival', id));
     this.position(this.enemy, this.world.enemyAnchor());
   }
 
+  private hudBottom = 0;
+
   private position(node: HTMLElement, at: THREE.Vector3): void {
     const p = this.world.project(at);
-    node.style.visibility = p.visible ? 'visible' : 'hidden';
+    node.style.visibility = p.visible && p.y - node.offsetHeight > this.hudBottom ? 'visible' : 'hidden';
     node.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -100%)`;
   }
 
