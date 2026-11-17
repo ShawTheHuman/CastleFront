@@ -26,6 +26,23 @@ export const BALANCE = {
   /** One-off bounty for clearing a target, in seconds of that sector's gold/s. */
   bountySeconds: 300,
 
+  /** The rival plays the same game as you, with its economy running at this fraction of normal
+   * speed on map 1... */
+  rivalPaceMap1: 0.5,
+  /** ...and this much faster on every map after: slow early, then a real race, then faster
+   * than you. */
+  rivalPaceGrowth: 1.12,
+  /** Each outpost the player takes slows the rival's building by this fraction. */
+  rivalSlowPerOutpost: 0,
+  /** Share of every stored resource the rival takes when its attack breaks through. */
+  rivalRaidLoss: 0.1,
+  /** ...but never more than this many minutes of that resource's income. */
+  rivalRaidMaxMinutes: 30,
+  /** Hours between rival attacks after one breaks through. */
+  rivalAttackCooldownHours: 8,
+  /** Minutes the player's army regroups after a failed assault on the rival base. */
+  assaultCooldownMinutes: 10,
+
   /** Offline earnings run at this fraction of online speed. */
   offlineEfficiency: 0.5,
 } as const;

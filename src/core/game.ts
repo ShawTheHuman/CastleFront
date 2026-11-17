@@ -1,14 +1,21 @@
 import { D, type Decimal } from './bignum';
 import { offlineCapHours, tickEconomy } from './economy';
-import { autoAdvance, type ProgressEvent } from './progression';
+import { autoAdvance, checkRivalAttack, type ProgressEvent } from './progression';
+import { tickRival } from './rival';
 import { cloneState } from './state';
 import { RESOURCE_IDS, type GameState, type ResourceId } from './types';
 import { BALANCE } from '../data/balance';
 
-/** One simulation step: economy, then idle auto-push. Used online, offline and by the balance sim. */
+/**
+ * One simulation step: economy, the rival's building, idle auto-push through outposts, then the
+ * rival's attack if it is due. Used online, offline and by the balance sim.
+ */
 export function step(state: GameState, dt: number): ProgressEvent[] {
   tickEconomy(state, dt);
-  return autoAdvance(state);
+  tickRival(state, dt);
+  const events = autoAdvance(state);
+  events.push(...checkRivalAttack(state));
+  return events;
 }
 
 export interface OfflineReport {

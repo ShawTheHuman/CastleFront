@@ -27,6 +27,7 @@ export const COLORS = {
   brick: 0xa1665e,
   canvas: 0xc5b58a,
   snow: 0xf3f6f9,
+  rivalSandbag: 0xb5574b,
 } as const;
 
 const materials = new Map<number, THREE.MeshLambertMaterial>();
@@ -336,9 +337,27 @@ const BUILDERS: Record<string, Builder> = {
   },
 };
 
-export function buildingModel(assetId: string): THREE.Group {
+export type Side = 'ours' | 'rival';
+
+/** Our army colours → the rival's. */
+const RIVAL_SWAP = new Map<number, number>([
+  [COLORS.army, COLORS.enemy],
+  [COLORS.armyDark, COLORS.enemyDark],
+]);
+
+export function buildingModel(assetId: string, side: Side = 'ours'): THREE.Group {
   const build = BUILDERS[assetId];
   const g = build ? build() : new THREE.Group().add(box(3, 2, 3, COLORS.concrete));
+  if (side === 'rival') {
+    g.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const swap = RIVAL_SWAP.get((m.material as THREE.MeshLambertMaterial).color.getHex());
+      if (swap !== undefined) m.material = mat(swap);
+    });
+    // Mirror so the rival's buildings face the battlefield too.
+    g.rotation.y = Math.PI;
+  }
   g.userData.assetId = assetId;
   return g;
 }
@@ -370,14 +389,12 @@ export function lockedPlot(): THREE.Group {
   return g;
 }
 
-export function sandbagWall(width: number): THREE.Group {
+export function sandbagWall(width: number, color: number = COLORS.canvas): THREE.Group {
   const g = new THREE.Group();
   const n = Math.round(width / 0.7);
   for (let row = 0; row < 2; row++) {
     for (let i = 0; i < n; i++) {
-      g.add(
-        box(0.68, 0.38, 0.5, COLORS.canvas, -width / 2 + i * 0.7 + (row ? 0.35 : 0), row * 0.38, 0),
-      );
+      g.add(box(0.68, 0.38, 0.5, color, -width / 2 + i * 0.7 + (row ? 0.35 : 0), row * 0.38, 0));
     }
   }
   return g;
@@ -388,19 +405,6 @@ export function tree(): THREE.Group {
   g.add(cyl(0.18, 0.6, COLORS.wood, 0, 0, 0, 6));
   g.add(mesh(new THREE.ConeGeometry(1.1, 1.8, 7), 0xc9d6e8, 0, 1.4, 0));
   g.add(mesh(new THREE.ConeGeometry(0.8, 1.4, 7), 0xdde6f2, 0, 2.3, 0));
-  return g;
-}
-
-/** Enemy fortress wall segment with a tower, in enemy colours. */
-export function enemyFortress(width: number): THREE.Group {
-  const g = new THREE.Group();
-  g.add(box(width, 1.6, 1, COLORS.enemy, 0, 0, 0));
-  for (let x = -width / 2; x <= width / 2; x += 1.2)
-    g.add(box(0.6, 0.5, 1, COLORS.enemyDark, x, 1.6, 0));
-  for (const x of [-width / 2, 0, width / 2]) {
-    g.add(box(2, 3.2, 2, COLORS.enemy, x, 0, 0));
-    g.add(roof(2.2, 1, 2.2, COLORS.enemyDark, x, 3.2, 0));
-  }
   return g;
 }
 

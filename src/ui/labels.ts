@@ -3,61 +3,84 @@ import {
   formatNumber,
   milestoneTier,
   quote,
+  rivalHasAsset,
   unlockRequirement,
   type Decimal,
   type GameState,
 } from '../core';
 import { ASSETS } from '../data/assets';
+import type { Side } from '../render/models';
 import type { World } from '../render/world';
 import { el, setText } from './dom';
 
 interface Label {
   root: HTMLElement;
-  name: HTMLElement;
   level: HTMLElement;
-  badge: HTMLElement;
 }
 
-/** HTML labels pinned above buildings, the enemy power badge, and floating "+N" numbers. */
+/**
+ * HTML labels pinned above both bases' buildings, the badge over the enemy formation, and
+ * floating "+N" numbers.
+ */
 export class Labels {
   readonly root = el('div', 'labels');
-  private labels = new Map<string, Label>();
+  private ours = new Map<string, Label>();
+  private rival = new Map<string, Label>();
+  private rivalSeen = new Map<string, number>();
   private enemy = el('div', 'enemy-badge');
 
   constructor(private world: World) {
     for (const a of ASSETS) {
-      const root = el('div', 'tag');
-      const name = el('span', 'tag-name', a.name);
-      const level = el('span', 'tag-level');
-      const badge = el('span', 'tag-up', '▲');
-      const row = el('span', 'tag-row');
-      row.append(level, badge);
-      root.append(name, row);
-      this.root.append(root);
-      this.labels.set(a.id, { root, name, level, badge });
+      this.ours.set(a.id, this.make(a.name, 'tag'));
+      this.rival.set(a.id, this.make(a.name, 'tag rival'));
     }
     this.root.append(this.enemy);
   }
 
+  private make(name: string, cls: string): Label {
+    const root = el('div', cls);
+    const level = el('span', 'tag-level');
+    const row = el('span', 'tag-row');
+    row.append(level, el('span', 'tag-up', '▲'));
+    root.append(el('span', 'tag-name', name), row);
+    this.root.append(root);
+    return { root, level };
+  }
+
   /** Refresh label text and state (4 Hz). */
-  refresh(state: GameState, enemyPower: Decimal): void {
+  refresh(state: GameState, enemyPower: Decimal, atBase: boolean): void {
     for (const a of ASSETS) {
-      const l = this.labels.get(a.id)!;
+      const l = this.ours.get(a.id)!;
       const lvl = state.levels[a.id] ?? 0;
       const req = unlockRequirement(state, a);
-      const q = quote(state, a.id, 'x1');
       l.root.classList.toggle('locked', req !== null);
       l.root.classList.toggle('unbuilt', req === null && lvl === 0);
-      l.root.classList.toggle('ready', q.affordable);
-      const stars = '★'.repeat(Math.min(milestoneTier(lvl), 5));
-      setText(l.level, req ? '🔒' : lvl === 0 ? 'Build' : `${stars}${stars ? ' ' : ''}Lv ${lvl}`);
+      l.root.classList.toggle('ready', quote(state, a.id, 'x1').affordable);
+      setText(l.level, req ? '🔒' : lvl === 0 ? 'Build' : levelText(lvl));
+
+      const r = this.rival.get(a.id)!;
+      const rl = state.rival.levels[a.id] ?? 0;
+      const has = rivalHasAsset(state.map, a.id);
+      r.root.hidden = !has;
+      r.root.classList.toggle('unbuilt', rl === 0);
+      setText(r.level, rl === 0 ? '—' : levelText(rl));
+      const seen = this.rivalSeen.get(a.id);
+      if (seen !== undefined && rl > seen) this.float('rival', a.id, `Lv +${rl - seen}`, 'rival');
+      this.rivalSeen.set(a.id, rl);
     }
+    this.enemy.classList.toggle('base', atBase);
     setText(this.enemy, formatNumber(enemyPower));
+  }
+
+  /** Forget the rival's last-seen levels (new map), so its new base doesn't spray "+N". */
+  resetRival(): void {
+    this.rivalSeen.clear();
   }
 
   /** Reposition labels (every frame, after the camera moves). */
   place(): void {
-    for (const [id, l] of this.labels) this.position(l.root, this.world.anchor(id));
+    for (const [id, l] of this.ours) this.position(l.root, this.world.anchor('ours', id));
+    for (const [id, l] of this.rival) this.position(l.root, this.world.anchor('rival', id));
     this.position(this.enemy, this.world.enemyAnchor());
   }
 
@@ -68,8 +91,8 @@ export class Labels {
   }
 
   /** A number that floats up from a building. */
-  float(assetId: string, text: string, cls = ''): void {
-    const p = this.world.project(this.world.anchor(assetId, 2.4));
+  float(side: Side, assetId: string, text: string, cls = ''): void {
+    const p = this.world.project(this.world.anchor(side, assetId, 2.4));
     if (!p.visible) return;
     const f = el('div', `float ${cls}`, text);
     f.style.left = `${p.x}px`;
@@ -80,6 +103,11 @@ export class Labels {
 
   floatAmount(assetId: string, amount: Decimal, icon: string): void {
     if (amount.lte(0)) return;
-    this.float(assetId, `+${formatNumber(amount)} ${icon}`);
+    this.float('ours', assetId, `+${formatNumber(amount)} ${icon}`);
   }
+}
+
+function levelText(lvl: number): string {
+  const stars = '★'.repeat(Math.min(milestoneTier(lvl), 5));
+  return `${stars}${stars ? ' ' : ''}Lv ${lvl}`;
 }

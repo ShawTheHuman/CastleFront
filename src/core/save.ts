@@ -1,9 +1,10 @@
 import { D } from './bignum';
+import { newRival } from './rival';
 import { newGame } from './state';
 import { RESOURCE_IDS, type GameState } from './types';
 import { ASSETS } from '../data/assets';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 interface SaveFileV1 {
   version: 1;
@@ -19,13 +20,39 @@ interface SaveFileV1 {
   };
 }
 
-type AnySave = SaveFileV1;
+interface SaveFileV2 extends Omit<SaveFileV1, 'version' | 'state'> {
+  version: 2;
+  state: SaveFileV1['state'] & {
+    /** Missing in saves migrated from v1: the rival then starts from a copy of the player. */
+    rival: {
+      resources: Record<string, string>;
+      levels: Record<string, number>;
+      startLevels: Record<string, number>;
+      conquestGold: string;
+      pending: number;
+      nextAttackAt: number;
+    } | null;
+    assaultReadyAt: number;
+  };
+}
+
+type AnySave = SaveFileV2;
 
 /** Migrations from version N to N+1. Add one entry per SAVE_VERSION bump. */
-const MIGRATIONS: Record<number, (save: unknown) => unknown> = {};
+const MIGRATIONS: Record<number, (save: unknown) => unknown> = {
+  // v2 adds the rival. Old saves get a rival that starts building now.
+  1: (save) => {
+    const s = save as SaveFileV1;
+    return {
+      ...s,
+      version: 2,
+      state: { ...s.state, rival: null, assaultReadyAt: 0 },
+    } satisfies SaveFileV2;
+  },
+};
 
 export function serialize(state: GameState, now = Date.now()): string {
-  const file: SaveFileV1 = {
+  const file: SaveFileV2 = {
     version: SAVE_VERSION,
     savedAt: now,
     state: {
@@ -36,6 +63,17 @@ export function serialize(state: GameState, now = Date.now()): string {
       conquestGold: state.conquestGold.toString(),
       lastUpdate: state.lastUpdate,
       playTime: state.playTime,
+      rival: {
+        resources: Object.fromEntries(
+          RESOURCE_IDS.map((r) => [r, state.rival.resources[r].toString()]),
+        ),
+        levels: { ...state.rival.levels },
+        startLevels: { ...state.rival.startLevels },
+        conquestGold: state.rival.conquestGold.toString(),
+        pending: state.rival.pending,
+        nextAttackAt: state.rival.nextAttackAt,
+      },
+      assaultReadyAt: state.assaultReadyAt,
     },
   };
   return JSON.stringify(file);
@@ -86,6 +124,25 @@ export function deserialize(json: string): GameState {
   state.sector = s.sector;
   if (typeof s.conquestGold === 'string') state.conquestGold = D(s.conquestGold);
   if (typeof s.playTime === 'number') state.playTime = s.playTime;
+  const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  if (isNum(s.assaultReadyAt)) state.assaultReadyAt = s.assaultReadyAt;
+  state.rival = newRival(state.levels, state.conquestGold);
+  const r = s.rival;
+  if (r && typeof r === 'object') {
+    for (const res of RESOURCE_IDS) {
+      const v = r.resources?.[res];
+      if (typeof v === 'string') state.rival.resources[res] = D(v);
+    }
+    for (const a of ASSETS) {
+      const lv = r.levels?.[a.id];
+      if (isInt(lv) && lv >= 0) state.rival.levels[a.id] = lv;
+      const st = r.startLevels?.[a.id];
+      if (isInt(st) && st >= 0) state.rival.startLevels[a.id] = st;
+    }
+    if (typeof r.conquestGold === 'string') state.rival.conquestGold = D(r.conquestGold);
+    if (isNum(r.pending) && r.pending >= 0) state.rival.pending = r.pending;
+    if (isNum(r.nextAttackAt)) state.rival.nextAttackAt = r.nextAttackAt;
+  }
   for (const r of RESOURCE_IDS) {
     if (!Number.isFinite(state.resources[r].mantissa)) throw new SaveError(`Bad resource ${r}`);
   }

@@ -7,7 +7,13 @@ import {
   deserialize,
   formatDuration,
   formatNumber,
+  assault,
+  assaultPreview,
+  isHQ,
   levelOutput,
+  rivalBuildFraction,
+  rivalHasAsset,
+  rivalIsFull,
   milestoneTier,
   newGame,
   productionMultiplier,
@@ -22,7 +28,7 @@ import {
   type ProgressEvent,
   type ResourceId,
 } from './core';
-import { ASSETS } from './data/assets';
+import { ASSETS, getAsset } from './data/assets';
 import { BALANCE } from './data/balance';
 import { localSaveStorage } from './platform/storage';
 import { World } from './render/world';
@@ -59,20 +65,27 @@ const top = new TopHud();
 const sheet = new BuildingSheet(
   () => state,
   (assetId, levels) => {
-    labels.float(assetId, `Lv +${levels}`, 'lvl');
+    labels.float('ours', assetId, `Lv +${levels}`, 'lvl');
     syncWorld();
   },
 );
 ui.append(labels.root, top.root);
+top.mountAssault(ui);
 sheet.mount(ui);
 
 function syncWorld(): void {
   for (const a of ASSETS) {
     const lvl = state.levels[a.id] ?? 0;
-    world.syncSlot(a.id, {
+    world.syncSlot('ours', a.id, {
       level: lvl,
-      unlocked: unlockRequirement(state, a) === null,
+      built: lvl > 0 && unlockRequirement(state, a) === null,
       tier: milestoneTier(lvl),
+    });
+    const rl = state.rival.levels[a.id] ?? 0;
+    world.syncSlot('rival', a.id, {
+      level: rl,
+      built: rl > 0 && rivalHasAsset(state.map, a.id),
+      tier: milestoneTier(rl),
     });
   }
 }
@@ -98,34 +111,142 @@ canvas.addEventListener('pointermove', (e) => {
 });
 canvas.addEventListener('pointerup', (e) => {
   if (down && !down.dragging) {
-    const id = world.pick(e.clientX, e.clientY);
-    if (id) sheet.open(id);
+    const hit = world.pick(e.clientX, e.clientY);
+    if (hit?.side === 'ours') sheet.open(hit.assetId);
+    else if (hit) showRivalBuilding(hit.assetId);
   }
   down = null;
 });
 canvas.addEventListener('pointercancel', () => (down = null));
 canvas.addEventListener('wheel', (e) => world.panBy(-e.deltaY * 0.5), { passive: true });
-top.viewButton.onclick = () => world.panTo(world.lookingAtBattle ? 'base' : 'battle');
+top.viewButton.onclick = () => world.panTo(top.viewTarget);
+top.assaultButton.onclick = () => showAssault();
+
+/** Read-only card for one of the rival's buildings, compared with ours. */
+function showRivalBuilding(assetId: string): void {
+  const asset = getAsset(assetId);
+  const theirs = state.rival.levels[assetId] ?? 0;
+  const ours = state.levels[assetId] ?? 0;
+  const diff = ours - theirs;
+  showModal(
+    `Rival ${asset.name}`,
+    [
+      list([compareRow('Rival', theirs), compareRow('You', ours)]),
+      para(
+        diff > 0
+          ? `You are ${diff} level${diff === 1 ? '' : 's'} ahead.`
+          : diff < 0
+            ? `The rival is ${-diff} level${diff === -1 ? '' : 's'} ahead.`
+            : 'Dead even.',
+      ),
+    ],
+    [{ label: 'Close' }],
+  );
+}
+
+function compareRow(who: string, level: number): HTMLElement {
+  const row = el('span', 'gain');
+  row.append(el('span', '', who), el('b', '', level > 0 ? `Lv ${level}` : 'Not built'));
+  return row;
+}
+
+/** Preview, then launch, the assault on the rival's base. */
+function showAssault(): void {
+  const p = assaultPreview(state);
+  if (!p.reachable || p.regroupIn > 0) return;
+  const verdict = p.wins
+    ? 'Your army is stronger. Victory is in reach.'
+    : `Their army is stronger. You need ${formatNumber(p.theirs.sub(p.ours))} more power, or the attack will fail and your army must regroup.`;
+  showModal(
+    'Assault the rival base?',
+    [
+      list([powerRow('Your army', p.ours, true), powerRow('Rival army', p.theirs, false)]),
+      para(verdict),
+    ],
+    [
+      {
+        label: p.wins ? 'Attack!' : 'Attack anyway',
+        kind: p.wins ? 'primary' : 'danger',
+        onClick: () => handleEvents(assault(state)),
+      },
+      { label: 'Not yet', kind: 'plain' },
+    ],
+  );
+}
+
+function powerRow(who: string, power: Decimal, ours: boolean): HTMLElement {
+  const row = el('span', `gain ${ours ? '' : 'foe'}`);
+  row.append(el('span', '', who), el('b', '', `⚔ ${formatNumber(power)}`));
+  return row;
+}
+
+let warnedRival = 0;
 
 // ── Events ──────────────────────────────────────────────────────────────
 function handleEvents(events: ProgressEvent[], quiet = false): void {
   for (const e of events) {
     if (e.kind === 'sectorCleared') {
       const progressAfter = (e.map - 1) * (BALANCE.sectorsPerMap + 1) + e.index + 1;
-      if (!quiet) toast(`Sector taken! +${formatNumber(e.bounty)} ${ICON.gold}`, 'win');
+      if (!quiet && !isHQ(e.index)) {
+        toast(
+          `Outpost taken! +${formatNumber(e.bounty)} ${ICON.gold} · its income is yours now`,
+          'win',
+        );
+      }
       for (const a of assetsUnlockedBy(progressAfter))
         toast(`New building: ${a.name}`, 'unlock', 3200);
     } else if (e.kind === 'mapCleared') {
+      labels.resetRival();
+      warnedRival = 0;
       showModal(
         `Map ${e.map} conquered!`,
         [
-          para(`The enemy HQ has fallen. On to Map ${e.map + 1}.`),
+          para(
+            `The rival's base has fallen. On to Map ${e.map + 1}, where a new rival starts from a copy of your base.`,
+          ),
           list([
             `Level cap raised to ${e.newCap}`,
             `All production ×${BALANCE.conquestProductionMult}`,
           ]),
         ],
         [{ label: 'Advance' }],
+      );
+    } else if (e.kind === 'assaultFailed') {
+      showModal(
+        'The assault failed',
+        [
+          list([powerRow('Your army', e.ours, true), powerRow('Rival army', e.theirs, false)]),
+          para(
+            `Your army falls back to regroup for ${formatDuration(e.readyIn)}. Keep upgrading and try again.`,
+          ),
+        ],
+        [{ label: 'Back to work' }],
+      );
+    } else if (e.kind === 'rivalRepelled') {
+      toast('You held the line! Counter-attacking…', 'win', 3000);
+    } else if (e.kind === 'rivalRaid') {
+      const lost = (Object.entries(e.losses) as [ResourceId, Decimal][])
+        .filter(([, v]) => v.gt(0))
+        .map(([r, v]) => {
+          const row = el('span', 'gain foe');
+          row.append(
+            el('span', 'ico', ICON[r]),
+            el('span', '', RESOURCE_NAMES[r]),
+            el('b', '', `−${formatNumber(v)}`),
+          );
+          return row;
+        });
+      showModal(
+        'The rival attacked!',
+        [
+          para('Their army reached full strength and broke through your lines.'),
+          list([powerRow('Your army', e.ours, true), powerRow('Rival army', e.theirs, false)]),
+          ...(lost.length ? [para('They carried off:'), list(lost)] : []),
+          para(
+            `They will attack again in ${formatDuration(e.nextIn)}. Grow your army to hold the line, or strike first.`,
+          ),
+        ],
+        [{ label: 'Rebuild' }],
       );
     }
   }
@@ -261,9 +382,13 @@ function frame(now: number): void {
   uiAcc += dt;
   if (uiAcc >= 0.25) {
     uiAcc = 0;
-    top.update(state);
-    top.setView(world.lookingAtBattle);
-    labels.refresh(state, currentEnemyPower(state));
+    top.update(state, world.view);
+    labels.refresh(state, currentEnemyPower(state), isHQ(state.sector));
+    const built = rivalBuildFraction(state);
+    if (warnedRival < 0.9 && built >= 0.9 && !rivalIsFull(state)) {
+      toast('The rival base is 90% built. When it is done, they attack!', 'info', 4000);
+    }
+    warnedRival = built;
     sheet.update();
     syncWorld();
   }
@@ -278,7 +403,13 @@ function frame(now: number): void {
     persist();
   }
 
-  world.update(dt, unitsFor(armyPower(state)), unitsFor(currentEnemyPower(state)));
+  world.update(
+    dt,
+    unitsFor(armyPower(state)),
+    unitsFor(currentEnemyPower(state)),
+    state.sector,
+    isHQ(state.sector),
+  );
   labels.place();
   requestAnimationFrame(frame);
 }

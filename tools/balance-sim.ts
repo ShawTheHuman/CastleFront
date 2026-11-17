@@ -1,30 +1,34 @@
 /**
  * Headless balance simulator.
  *
- * Plays the game with a simple, reasonable strategy and reports pacing per map: when each map is
- * cleared, when assets hit the level cap, and how each map compares with the one before.
+ * Plays the game with a simple, reasonable strategy and reports pacing per map: how long each map
+ * took, how that compares with the rival's schedule, and whether the rival attacked first.
  *
- * Strategy ("buy whatever is cheapest in time"): every step, repeatedly buy the single upgrade
- * whose cost is the fewest seconds of current income, until nothing is affordable. This levels
- * assets evenly, the way an attentive player does. The player is assumed always online.
+ * Strategy: the same greedy AI the rival uses (src/core/ai.ts). Assault the rival's base as soon
+ * as the army is strong enough.
  *
- * Usage: npm run balance -- [--maps 10] [--dt 60] [--days 400]
+ * `--pace` models a less efficient player: their economy runs at that fraction of speed while the
+ * rival builds at full speed. 1 = an attentive player who buys the moment they can afford it.
+ *
+ * Usage: npm run balance -- [--maps 10] [--dt 60] [--days 400] [--pace 1]
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import {
   armyPower,
-  buy,
+  assault,
+  assaultPreview,
+  autoAdvance,
+  buyGreedy,
+  checkRivalAttack,
   formatDuration,
   formatNumber,
-  isUnlocked,
-  levelCap,
-  netRates,
   newGame,
-  quote,
-  step,
-  type Decimal,
-  type GameState,
-  type ResourceId,
+  rivalBuildFraction,
+  rivalPace,
+  rivalPower,
+  tickEconomy,
+  tickRival,
+  type ProgressEvent,
 } from '../src/core';
 import { ASSETS } from '../src/data/assets';
 import { TARGETS_PER_MAP } from '../src/data/balance';
@@ -38,101 +42,95 @@ function arg(name: string, fallback: number): number {
 const MAPS = arg('maps', 10);
 const DT = arg('dt', 60);
 const MAX_DAYS = arg('days', 400);
-
-/** Assets the sim ignores (no effect on pacing while always online). */
-const SKIP = new Set(['warehouse']);
-
-function secondsToAfford(state: GameState, cost: Partial<Record<ResourceId, Decimal>>): number {
-  const rates = netRates(state);
-  let worst = 0;
-  for (const [res, amt] of Object.entries(cost) as [ResourceId, Decimal][]) {
-    const rate = rates[res];
-    const t = rate.lte(0) ? Infinity : amt.div(rate).toNumber();
-    worst = Math.max(worst, t);
-  }
-  return worst;
-}
-
-function buyGreedy(state: GameState): void {
-  for (let guard = 0; guard < 10_000; guard++) {
-    let best: { id: string; t: number } | null = null;
-    for (const a of ASSETS) {
-      if (SKIP.has(a.id) || !isUnlocked(state, a)) continue;
-      const q = quote(state, a.id, 'x1');
-      if (!q.affordable) continue;
-      const t = secondsToAfford(state, q.cost);
-      if (!best || t < best.t) best = { id: a.id, t };
-    }
-    if (!best) return;
-    buy(state, best.id, 'x1');
-  }
-}
+const PACE = arg('pace', 1);
 
 interface MapRow {
   map: number;
-  clearedAt: number;
   duration: number;
-  firstCapAt: number | null;
+  outpostsDone: number;
+  rivalBuilt: number;
+  rivalPace: number;
+  rivalPower: string;
+  raids: number;
+  how: string;
   avgArmyLevel: number;
-  cappedAssets: number;
   power: string;
 }
 
 const state = newGame(0);
 const rows: MapRow[] = [];
-const targetTimes: string[] = ['map,target,time_s'];
 const levelLog: string[] = [];
+const targetTimes: string[] = ['map,target,time_s'];
 let mapStart = 0;
-let firstCap: number | null = null;
+let outpostsDone = 0;
+let raids = 0;
+let repelled = false;
 let t = 0;
 
 while (state.map <= MAPS && t < MAX_DAYS * 86400) {
   buyGreedy(state);
-  const cap = levelCap(state.map);
-  if (
-    firstCap === null &&
-    ASSETS.some((a) => !SKIP.has(a.id) && (state.levels[a.id] ?? 0) >= cap)
-  ) {
-    firstCap = t;
-  }
   const levelsBefore = { ...state.levels };
-  const capBefore = cap;
-  const events = step(state, DT);
+  const rivalBuiltBefore = rivalBuildFraction(state);
+  const rivalPowerBefore = rivalPower(state);
+  const mapBefore = state.map;
+  tickEconomy(state, DT * PACE);
+  state.playTime += DT * (1 - PACE); // keep playTime as wall-clock play for the rival
+  tickRival(state, DT);
   t += DT;
+  const events: ProgressEvent[] = autoAdvance(state);
+  events.push(...checkRivalAttack(state));
+  const p = assaultPreview(state);
+  if (state.map === mapBefore && p.reachable && p.wins && p.regroupIn === 0)
+    events.push(...assault(state));
+
   for (const e of events) {
-    if (e.kind === 'sectorCleared') targetTimes.push(`${e.map},${e.index},${t}`);
+    if (e.kind === 'sectorCleared') {
+      targetTimes.push(`${e.map},${e.index},${t}`);
+      if (e.index === TARGETS_PER_MAP - 2) outpostsDone = t - mapStart;
+    }
+    if (e.kind === 'rivalRaid') raids++;
+    if (e.kind === 'rivalRepelled') repelled = true;
     if (e.kind === 'mapCleared') {
       const army = ASSETS.filter((a) => a.line === 'front' && (levelsBefore[a.id] ?? 0) > 0);
       const avg = army.reduce((s, a) => s + (levelsBefore[a.id] ?? 0), 0) / army.length;
       rows.push({
         map: e.map,
-        clearedAt: t,
         duration: t - mapStart,
-        firstCapAt: firstCap === null ? null : firstCap - mapStart,
+        outpostsDone,
+        rivalBuilt: rivalBuiltBefore,
+        rivalPace: rivalPace(e.map),
+        rivalPower: formatNumber(rivalPowerBefore),
+        raids,
+        how: repelled ? 'held, countered' : raids ? 'won after raids' : 'assault',
         avgArmyLevel: Math.round(avg),
-        cappedAssets: ASSETS.filter((a) => (levelsBefore[a.id] ?? 0) >= capBefore).length,
         power: formatNumber(armyPower({ levels: levelsBefore })),
       });
       levelLog.push(
         `map ${e.map}: ` + ASSETS.map((a) => `${a.id} ${levelsBefore[a.id] ?? 0}`).join(', '),
       );
       mapStart = t;
-      firstCap = null;
+      raids = 0;
+      repelled = false;
     }
   }
 }
 
 const pad = (s: string | number, n: number) => String(s).padStart(n);
-console.log(`Balance sim: dt=${DT}s, always online, ${TARGETS_PER_MAP} targets/map\n`);
+console.log(
+  `Balance sim: dt=${DT}s, pace=${PACE}, ${TARGETS_PER_MAP - 1} outposts + rival base per map\n`,
+);
 console.log(
   [
     pad('map', 3),
     pad('time on map', 12),
     pad('×prev', 6),
-    pad('cleared at', 11),
-    pad('1st cap', 9),
-    pad('avg army L', 10),
-    pad('capped', 6),
+    pad('outposts', 9),
+    pad('rival pace', 10),
+    pad('rival built', 11),
+    pad('rival power', 11),
+    pad('raids', 5),
+    pad('won by', 16),
+    pad('army L', 7),
     pad('power', 9),
   ].join('  '),
 );
@@ -143,34 +141,43 @@ rows.forEach((r, i) => {
       pad(r.map, 3),
       pad(formatDuration(r.duration), 12),
       pad(prev ? (r.duration / prev.duration).toFixed(2) : '-', 6),
-      pad(formatDuration(r.clearedAt), 11),
-      pad(r.firstCapAt === null ? '-' : formatDuration(r.firstCapAt), 9),
-      pad(r.avgArmyLevel, 10),
-      pad(r.cappedAssets, 6),
+      pad(formatDuration(r.outpostsDone), 9),
+      pad(r.rivalPace.toFixed(2), 10),
+      pad(`${Math.round(r.rivalBuilt * 100)}%`, 11),
+      pad(r.rivalPower, 11),
+      pad(r.raids, 5),
+      pad(r.how, 16),
+      pad(r.avgArmyLevel, 7),
       pad(r.power, 9),
     ].join('  '),
   );
 });
+console.log('\nrival built = how much of its base the rival had finished when the map fell.');
 if (state.map <= MAPS) {
   console.log(
     `\nStopped at map ${state.map}, target ${state.sector} after ${formatDuration(t)} (limit ${MAX_DAYS}d).`,
   );
 }
-
-console.log('\nLevels when each HQ fell:\n' + levelLog.join('\n'));
+console.log('\nLevels when each base fell:\n' + levelLog.join('\n'));
 
 mkdirSync('tools/out', { recursive: true });
 writeFileSync('tools/out/targets.csv', targetTimes.join('\n') + '\n');
 writeFileSync(
   'tools/out/maps.csv',
-  'map,cleared_at_s,duration_s,first_cap_s,avg_army_level,capped_assets\n' +
+  'map,duration_s,outposts_done_s,rival_pace,rival_built,raids,won_by,avg_army_level\n' +
     rows
       .map((r) =>
-        [r.map, r.clearedAt, r.duration, r.firstCapAt ?? '', r.avgArmyLevel, r.cappedAssets].join(
-          ',',
-        ),
+        [
+          r.map,
+          r.duration,
+          r.outpostsDone,
+          r.rivalPace,
+          r.rivalBuilt.toFixed(3),
+          r.raids,
+          r.how,
+          r.avgArmyLevel,
+        ].join(','),
       )
       .join('\n') +
     '\n',
 );
-console.log('\nWrote tools/out/maps.csv and tools/out/targets.csv');

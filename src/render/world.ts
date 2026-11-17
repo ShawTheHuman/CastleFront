@@ -1,7 +1,13 @@
 import * as THREE from 'three';
-import { COLORS, buildingModel, enemyFortress, lockedPlot, mat, sandbagWall, tree } from './models';
+import { COLORS, buildingModel, lockedPlot, mat, sandbagWall, tree, type Side } from './models';
 
-/** Where each building sits on the base (world x/z; the camera looks toward -z). */
+/**
+ * The whole map in one scene, looking toward -z:
+ *   our base (bottom) · our wall · the road with the rival's outposts · the rival's wall ·
+ *   the rival's base (top), a mirror image of ours.
+ */
+
+/** Where each of our buildings sits (world x/z). The rival's base mirrors this across MIRROR_Z. */
 export const LAYOUT: Record<string, { x: number; z: number }> = {
   // Front line, nearest the battlefield.
   barracks: { x: -5, z: -7 },
@@ -21,20 +27,30 @@ export const LAYOUT: Record<string, { x: number; z: number }> = {
 };
 
 const WALL_Z = -12;
-const TROOPS_Z = -14.5;
-const ENEMY_Z = -26;
-const FORTRESS_Z = -38;
-const PAN_MIN = -26;
+const MIRROR_Z = -24;
+const RIVAL_WALL_Z = 2 * MIRROR_Z - WALL_Z; // -36
+const OUTPOST_FIRST_Z = -15.5;
+const OUTPOST_STEP = 2.2;
+const RIVAL_ARMY_Z = RIVAL_WALL_Z + 3;
+const PAN_MIN = 2 * MIRROR_Z - 4; // looking at the rival's base
 const PAN_MAX = 14;
 const VISIBLE_WIDTH = 17;
 const CAM_OFFSET = new THREE.Vector3(0, 26, 15);
 const MAX_UNITS = 300;
 
+export type View = 'base' | 'front' | 'rival';
+const VIEW_Z: Record<View, number> = { base: 1, front: -20, rival: 2 * MIRROR_Z - 1 };
+
+function mirrorZ(z: number): number {
+  return 2 * MIRROR_Z - z;
+}
+
 interface Slot {
+  side: Side;
   assetId: string;
   root: THREE.Group;
   model: THREE.Group | null;
-  locked: boolean;
+  built: boolean;
   level: number;
   pop: number;
   smoke: THREE.Mesh[];
@@ -42,14 +58,18 @@ interface Slot {
 
 export interface SlotView {
   level: number;
-  unlocked: boolean;
+  /** Shown as a building (false = construction plot). */
+  built: boolean;
   tier: number;
 }
 
-/**
- * The base and the battlefield in one scene. The camera pans along z: the base at the bottom,
- * our wall and troops in the middle, the enemy formation and fortress at the top.
- */
+export interface Pick {
+  side: Side;
+  assetId: string;
+}
+
+const key = (side: Side, assetId: string) => `${side}:${assetId}`;
+
 export class World {
   readonly renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -57,14 +77,15 @@ export class World {
   private sun = new THREE.DirectionalLight(0xffffff, 1.5);
   private slots = new Map<string, Slot>();
   private raycaster = new THREE.Raycaster();
-  private targetZ = 1;
-  private focusZ = 1;
+  private targetZ = VIEW_Z.base;
+  private focusZ = VIEW_Z.base;
   private ours: THREE.InstancedMesh;
   private theirs: THREE.InstancedMesh;
   private ourHeads: THREE.InstancedMesh;
   private theirHeads: THREE.InstancedMesh;
   private dummy = new THREE.Object3D();
   private time = 0;
+  private enemyZ = OUTPOST_FIRST_Z;
   private reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -76,7 +97,6 @@ export class World {
     this.scene.fog = new THREE.Fog(0xdfe7ee, 45, 90);
 
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0xa7b9cc, 1.5));
-    this.sun.position.set(-12, 30, 14);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     const sc = this.sun.shadow.camera;
@@ -91,20 +111,23 @@ export class World {
     this.buildGround();
     this.buildScenery();
 
-    for (const [assetId, pos] of Object.entries(LAYOUT)) {
-      const root = new THREE.Group();
-      root.position.set(pos.x, 0, pos.z);
-      root.userData.assetId = assetId;
-      this.scene.add(root);
-      this.slots.set(assetId, {
-        assetId,
-        root,
-        model: null,
-        locked: true,
-        level: -1,
-        pop: 0,
-        smoke: [],
-      });
+    for (const side of ['ours', 'rival'] as const) {
+      for (const [assetId, pos] of Object.entries(LAYOUT)) {
+        const root = new THREE.Group();
+        root.position.set(pos.x, 0, side === 'ours' ? pos.z : mirrorZ(pos.z));
+        root.userData.slotKey = key(side, assetId);
+        this.scene.add(root);
+        this.slots.set(key(side, assetId), {
+          side,
+          assetId,
+          root,
+          model: null,
+          built: false,
+          level: -1,
+          pop: 0,
+          smoke: [],
+        });
+      }
     }
 
     const body = new THREE.CapsuleGeometry(0.24, 0.42, 3, 6);
@@ -130,78 +153,78 @@ export class World {
   }
 
   private buildGround(): void {
-    const snow = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), mat(COLORS.snow));
+    const snow = new THREE.Mesh(new THREE.PlaneGeometry(300, 300), mat(COLORS.snow));
     snow.rotation.x = -Math.PI / 2;
+    snow.position.z = MIRROR_Z;
     snow.receiveShadow = true;
     this.scene.add(snow);
 
-    // Base slab under the buildings.
-    const base = new THREE.Mesh(new THREE.BoxGeometry(17, 0.1, 32), mat(0xd9dee3));
-    base.position.set(0, 0.05, 6.5);
-    base.receiveShadow = true;
-    this.scene.add(base);
+    for (const side of ['ours', 'rival'] as const) {
+      const slab = new THREE.Mesh(
+        new THREE.BoxGeometry(17, 0.1, 32),
+        mat(side === 'ours' ? 0xd9dee3 : 0xe3d6d3),
+      );
+      slab.position.set(0, 0.05, side === 'ours' ? 6.5 : mirrorZ(6.5));
+      slab.receiveShadow = true;
+      this.scene.add(slab);
+    }
 
-    // Sand road from our wall to the enemy fortress.
-    const road = new THREE.Mesh(new THREE.BoxGeometry(13, 0.06, 30), mat(COLORS.sand));
-    road.position.set(0, 0.03, (WALL_Z + FORTRESS_Z) / 2);
+    const road = new THREE.Mesh(
+      new THREE.BoxGeometry(13, 0.06, RIVAL_WALL_Z - WALL_Z),
+      mat(COLORS.sand),
+    );
+    road.position.set(0, 0.03, MIRROR_Z);
     road.receiveShadow = true;
     this.scene.add(road);
 
     const wall = sandbagWall(16);
     wall.position.set(0, 0, WALL_Z);
     this.scene.add(wall);
-
-    const fortress = enemyFortress(14);
-    fortress.position.set(0, 0, FORTRESS_Z);
-    this.scene.add(fortress);
+    const rivalWall = sandbagWall(16, COLORS.rivalSandbag);
+    rivalWall.position.set(0, 0, RIVAL_WALL_Z);
+    this.scene.add(rivalWall);
   }
 
   private buildScenery(): void {
     let seed = 11;
     const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < 90; i++) {
       const side = i % 2 ? 1 : -1;
       const t = tree();
-      t.position.set(side * (10 + rand() * 14), 0, -50 + rand() * 80);
+      t.position.set(side * (10 + rand() * 14), 0, -80 + rand() * 110);
       t.scale.setScalar(0.8 + rand() * 0.7);
       this.scene.add(t);
     }
-    // Fill the empty corner of the back line.
+    // Fill the empty corner of each back line.
     for (const [x, z] of [
       [4, 11.5],
       [6, 13],
       [4.5, 18],
       [6.2, 19.5],
     ] as const) {
-      const t = tree();
-      t.position.set(x, 0, z);
-      this.scene.add(t);
+      for (const zz of [z, mirrorZ(z)]) {
+        const t = tree();
+        t.position.set(x, 0, zz);
+        this.scene.add(t);
+      }
     }
   }
 
-  /** Sync building models with the game state (cheap when nothing changed). */
-  syncSlot(assetId: string, view: SlotView): void {
-    const slot = this.slots.get(assetId);
+  /** Sync a building model with the game state (cheap when nothing changed). */
+  syncSlot(side: Side, assetId: string, view: SlotView): void {
+    const slot = this.slots.get(key(side, assetId));
     if (!slot) return;
-    const locked = !view.unlocked;
-    const built = view.level > 0;
-    const wantsModel = !locked && built;
-    if (
-      slot.model === null ||
-      slot.locked !== locked ||
-      (slot.model.userData.built as boolean) !== wantsModel
-    ) {
+    if (slot.model === null || slot.built !== view.built) {
       if (slot.model) slot.root.remove(slot.model);
-      slot.model = wantsModel ? buildingModel(assetId) : lockedPlot();
-      slot.model.userData.built = wantsModel;
+      slot.model = view.built ? buildingModel(assetId, side) : lockedPlot();
+      slot.built = view.built;
       slot.root.add(slot.model);
-      slot.locked = locked;
-      slot.smoke = wantsModel ? this.makeSmoke(slot) : [];
+      slot.smoke = view.built ? this.makeSmoke(slot) : [];
     }
     if (slot.level >= 0 && view.level > slot.level) slot.pop = 1;
     slot.level = view.level;
     const s =
-      (wantsModel ? 0.82 + Math.min(view.tier, 8) * 0.04 : 1) *
+      (view.built ? 0.82 + Math.min(view.tier, 8) * 0.04 : 1) *
       (1 + Math.sin(slot.pop * Math.PI) * 0.12);
     slot.model.scale.setScalar(s);
   }
@@ -220,14 +243,15 @@ export class World {
     return puffs;
   }
 
-  /** Screen-space anchor above a building, for its label. */
-  anchor(assetId: string, height = 3.6): THREE.Vector3 {
+  /** Anchor above a building, for its label. */
+  anchor(side: Side, assetId: string, height = 3.6): THREE.Vector3 {
     const p = LAYOUT[assetId] ?? { x: 0, z: 0 };
-    return new THREE.Vector3(p.x, height, p.z);
+    return new THREE.Vector3(p.x, height, side === 'ours' ? p.z : mirrorZ(p.z));
   }
 
+  /** Anchor above the enemy formation the army faces next. */
   enemyAnchor(): THREE.Vector3 {
-    return new THREE.Vector3(0, 3, ENEMY_Z);
+    return new THREE.Vector3(0, 3, this.enemyZ - 1);
   }
 
   /** Project a world point to CSS pixels; `visible` is false when off-screen or behind. */
@@ -243,7 +267,7 @@ export class World {
   }
 
   /** The building under a screen point, if any. */
-  pick(clientX: number, clientY: number): string | null {
+  pick(clientX: number, clientY: number): Pick | null {
     const rect = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(
       ((clientX - rect.left) / rect.width) * 2 - 1,
@@ -253,22 +277,28 @@ export class World {
     const roots = [...this.slots.values()].map((s) => s.root);
     const hit = this.raycaster.intersectObjects(roots, true)[0];
     let o: THREE.Object3D | null = hit?.object ?? null;
-    while (o && !this.slots.has(o.userData.assetId as string)) o = o.parent;
-    return o ? (o.userData.assetId as string) : null;
+    while (o && !this.slots.has(o.userData.slotKey as string)) o = o.parent;
+    const slot = o ? this.slots.get(o.userData.slotKey as string) : undefined;
+    return slot ? { side: slot.side, assetId: slot.assetId } : null;
   }
 
-  /** Pan by a drag of `dy` CSS pixels (drag down = look further back). */
+  /** Pan by a drag of `dy` CSS pixels. */
   panBy(dy: number): void {
     const unitsPerPx = this.visibleHeight() / this.canvas.clientHeight;
     this.targetZ = THREE.MathUtils.clamp(this.targetZ - dy * unitsPerPx * 1.3, PAN_MIN, PAN_MAX);
   }
 
-  panTo(where: 'base' | 'battle'): void {
-    this.targetZ = where === 'base' ? 1 : -18;
+  panTo(view: View): void {
+    this.targetZ = VIEW_Z[view];
   }
 
-  get lookingAtBattle(): boolean {
-    return this.focusZ < -9;
+  /** The view the camera is closest to. */
+  get view(): View {
+    let best: View = 'base';
+    for (const v of Object.keys(VIEW_Z) as View[]) {
+      if (Math.abs(VIEW_Z[v] - this.focusZ) < Math.abs(VIEW_Z[best] - this.focusZ)) best = v;
+    }
+    return best;
   }
 
   private visibleHeight(): number {
@@ -304,7 +334,11 @@ export class World {
     head.instanceMatrix.needsUpdate = true;
   }
 
-  update(dt: number, ourUnits: number, enemyUnits: number): void {
+  /**
+   * @param outpost index of the target the army faces (outposts first, then the rival's base)
+   * @param atBase the army faces the rival's base
+   */
+  update(dt: number, ourUnits: number, enemyUnits: number, outpost: number, atBase: boolean): void {
     this.time += dt;
     const k = 1 - Math.exp(-dt * 10);
     this.focusZ += (this.targetZ - this.focusZ) * k;
@@ -314,14 +348,16 @@ export class World {
     this.sun.position.set(-12, 30, this.focusZ + 14);
     this.sun.target.position.copy(focus);
 
-    this.layoutUnits(this.ours, this.ourHeads, ourUnits, TROOPS_Z, 1, 0.5);
-    this.layoutUnits(this.theirs, this.theirHeads, enemyUnits, ENEMY_Z, -1, 0.3);
+    // The front line advances up the road as outposts fall.
+    const targetEnemyZ = atBase ? RIVAL_ARMY_Z : OUTPOST_FIRST_Z - outpost * OUTPOST_STEP;
+    this.enemyZ += (targetEnemyZ - this.enemyZ) * (1 - Math.exp(-dt * 2));
+    const oursZ = Math.min(WALL_Z - 2.5, this.enemyZ + 6);
+    this.layoutUnits(this.ours, this.ourHeads, ourUnits, oursZ, 1, 0.5);
+    this.layoutUnits(this.theirs, this.theirHeads, enemyUnits, this.enemyZ, -1, 0.3);
 
     const motion = this.reducedMotion ? 0 : 1;
     for (const slot of this.slots.values()) {
-      if (slot.pop > 0) {
-        slot.pop = Math.max(0, slot.pop - dt * 3);
-      }
+      if (slot.pop > 0) slot.pop = Math.max(0, slot.pop - dt * 3);
       const m = slot.model;
       if (!m) continue;
       const jack = m.getObjectByName('pumpjack');

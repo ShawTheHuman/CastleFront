@@ -252,3 +252,38 @@ bottleneck while farms and barracks cap early; later maps slowly drift above the
   "Map conquered" card.
 - Welcome-back card with offline gains and the Warehouse cap explained.
 - Settings: "Skip 1 hour" for testing, and reset progress with an in-page confirmation.
+
+### The rival race (design change after phase 2)
+
+Each map is now a race against a **rival commander** who builds a mirror image of your base on the
+far side of the battlefield.
+
+- **The rival plays the same game.** It starts each map with a copy of your base (levels and
+  territory income) and empty stores. From then on it runs the same economy and buys upgrades with
+  the same greedy strategy as the balance simulator (`src/core/ai.ts`), at a handicapped speed:
+  `rivalPaceMap1 × rivalPaceGrowth^(map-1)` (0.5× on map 1, 1.12× faster every map, so it overtakes
+  an efficient player around map 7).
+- **Outposts are skirmishes.** The 8 outposts between the bases fall automatically as before, give
+  gold and unlock buildings. The rival starts each map holding all of them and collecting their
+  income; each one you take moves its income to you.
+- **The final battle is yours to launch.** Once the outposts are taken, the rival's base can be
+  assaulted at any time. A preview compares the two armies. Losing makes your army regroup for 10 min.
+- **If the rival finishes first, it attacks.** When every rival building reaches the level cap,
+  it attacks: if your army holds, you counter-attack and take the map; if not, it raids 10% of each
+  store (capped at 30 minutes of that resource's income) and attacks again 8 hours later.
+- **You can watch it happen.** The rival's buildings show their levels and pop "Lv +N" as they
+  upgrade; the race panel shows how much of each base is built this map and each army's power.
+  Tap a rival building to compare it with yours.
+- Because both sides are capped at the same level, maxing out always wins the final battle.
+
+Pacing from `npm run balance` (pace 1 = attentive player; `--pace 0.5` = half as efficient):
+
+| Map | Pace 1: time | Rival built | Pace 0.5: time | Rival built |
+| --- | ------------ | ----------- | -------------- | ----------- |
+| 1   | 11h 50m      | 58%         | 1d 23h         | 75%         |
+| 3   | 17h 51m      | 61%         | 2d 4h          | 66%         |
+| 5   | 1d 4h        | 56%         | 4d 4h          | 61%         |
+| 7   | 2d 21h       | 54%         | 15d 10h        | 58%         |
+
+Open tuning items: an attentive player is still gated by the outposts rather than the rival until
+about map 6; rivals faster than the player (map 8+) have not been checked for raid frequency.

@@ -48,6 +48,24 @@ export interface GameState {
   lastUpdate: number;
   /** Total simulated seconds played (online + offline). */
   playTime: number;
+  /** The rival commander building the mirrored base on the current map. */
+  rival: RivalState;
+  /** playTime (s) before which the player's army is regrouping after a failed assault. */
+  assaultReadyAt: number;
+}
+
+/** The rival's own base: it plays the same economy as the player. */
+export interface RivalState {
+  resources: Resources;
+  levels: Record<string, number>;
+  /** Levels the rival started this map with (for "% built"). */
+  startLevels: Record<string, number>;
+  /** Gold/s from territory: a copy of the player's when the map began. */
+  conquestGold: Decimal;
+  /** Seconds of play not yet simulated for the rival (it updates in small steps). */
+  pending: number;
+  /** playTime (s) of the rival's next attack once it is at full strength. */
+  nextAttackAt: number;
 }
 
 export type BuyMode = 'x1' | 'x10' | 'milestone' | 'max';
