@@ -25,8 +25,8 @@ In the browser console, `cf.state` shows the live game state and `cf.reset()` wi
 | `src/core/`            | Pure TS game logic, no rendering: big numbers, formulas, economy, army,   |
 |                        | progression, upgrades, offline earnings, save/load. Fully unit-tested.    |
 | `src/data/`            | **All balance numbers**: `assets.ts` (buildings) and `balance.ts` (knobs) |
-| `src/render/`          | Three.js scene (placeholder battlefield with instanced units)             |
-| `src/ui/`              | Debug HUD (replaced by the real base screen in phase 2)                   |
+| `src/render/`          | Three.js world: base layout, procedural building models, troops           |
+| `src/ui/`              | HUD, building labels, upgrade sheet, modals and toasts                    |
 | `src/platform/`        | Storage adapter (localStorage now; Capacitor later)                       |
 | `tools/balance-sim.ts` | Simulator that plays the game and reports time per map                    |
 | `tests/`               | Vitest suites                                                             |
