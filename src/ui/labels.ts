@@ -13,6 +13,9 @@ import type { Side } from '../render/models';
 import type { World } from '../render/world';
 import { el, setText } from './dom';
 
+/** Approximate height of a building label (name + level), for hiding labels under the HUD. */
+const LABEL_HEIGHT = 44;
+
 interface Label {
   root: HTMLElement;
   level: HTMLElement;
@@ -92,7 +95,7 @@ export class Labels {
 
   private position(node: HTMLElement, at: THREE.Vector3): void {
     const p = this.world.project(at);
-    node.style.visibility = p.visible && p.y - node.offsetHeight > this.hudBottom ? 'visible' : 'hidden';
+    node.style.visibility = p.visible && p.y - LABEL_HEIGHT > this.hudBottom ? 'visible' : 'hidden';
     node.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -100%)`;
   }
 
